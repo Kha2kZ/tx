@@ -3,7 +3,7 @@ import random
 import asyncio
 import discord
 from discord.ext import commands
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from db_manager import db
 from dotenv import load_dotenv
 
@@ -13,6 +13,12 @@ TOKEN = os.getenv("DISCORD_TOKEN")
 if not TOKEN:
     print("No DISCORD_TOKEN found in environment variables.")
     exit(1)
+
+# UTC-7 Timezone
+UTC7 = timezone(timedelta(hours=-7))
+
+def get_now_utc7():
+    return datetime.now(timezone.utc).astimezone(UTC7)
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -37,7 +43,7 @@ def get_daily_reward(day):
 
 def create_embed(title, description, color=0x0099ff):
     embed = discord.Embed(title=title, description=description, color=color)
-    embed.timestamp = datetime.now()
+    embed.timestamp = get_now_utc7()
     return embed
 
 async def start_game(ctx):
@@ -46,7 +52,7 @@ async def start_game(ctx):
     
     game.is_running = True
     game.channel_id = ctx.channel.id
-    game.end_time = datetime.now() + timedelta(seconds=30)
+    game.end_time = get_now_utc7() + timedelta(seconds=30)
     game.bets = []
 
     await ctx.send(embed=create_embed(
@@ -110,9 +116,16 @@ async def end_game(channel, forced_result=None):
         await asyncio.sleep(10)
         await start_game(channel)
 
+# Auto-save task
+async def auto_save_task():
+    while True:
+        await asyncio.sleep(5)
+        db.save_data()
+
 @bot.event
 async def on_ready():
     print(f'Logged in as {bot.user}!')
+    bot.loop.create_task(auto_save_task())
 
 @bot.command()
 async def tx(ctx):
@@ -169,16 +182,25 @@ async def daily(ctx):
     if not user:
         user = db.create_user(str(ctx.author.id), ctx.author.name)
 
-    now = datetime.now()
-    # Simplified daily logic
-    if user['last_daily'] and user['last_daily'].date() == now.date():
+    now = get_now_utc7()
+    last_daily = user.get('last_daily')
+    
+    if last_daily:
+        if isinstance(last_daily, str):
+            last_daily = datetime.fromisoformat(last_daily)
+        if last_daily.tzinfo is None:
+            last_daily = last_daily.replace(tzinfo=UTC7)
+        else:
+            last_daily = last_daily.astimezone(UTC7)
+
+    if last_daily and last_daily.date() == now.date():
         await ctx.reply(embed=create_embed("❌ Lỗi", "Bạn đã nhận thưởng hôm nay rồi!", 0xff0000))
         return
 
-    streak = user['daily_streak'] + 1 if user['last_daily'] and user['last_daily'].date() == (now - timedelta(days=1)).date() else 1
+    streak = user['daily_streak'] + 1 if last_daily and last_daily.date() == (now - timedelta(days=1)).date() else 1
     reward = get_daily_reward(streak)
     
-    db.update_user(str(ctx.author.id), balance=user['balance'] + reward, daily_streak=streak, last_daily=now)
+    db.update_user(str(ctx.author.id), balance=user['balance'] + reward, daily_streak=streak, last_daily=now.isoformat())
     await ctx.reply(embed=create_embed("📅 Điểm danh hàng ngày", f"Bạn đã nhận được **{reward:,}** cash!\nChuỗi hiện tại: **{streak} ngày**", 0x00ff00))
 
 @bot.command(aliases=["cash"])

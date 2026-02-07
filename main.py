@@ -22,7 +22,7 @@ def get_now_utc7():
 
 intents = discord.Intents.default()
 intents.message_content = True
-bot = commands.Bot(command_prefix="?", intents=intents)
+bot = commands.Bot(command_prefix="?", intents=intents, help_command=None)
 
 class GameState:
     def __init__(self):
@@ -277,7 +277,7 @@ async def txtt(ctx):
     else:
         await ctx.reply(embed=create_embed("🔄 Auto Restart", "Đã **TẮT** chế độ tự động bắt đầu game mới.", 0xff0000))
 
-@bot.command()
+@bot.command(name="help")
 async def help_cmd(bot_ctx):
     help_text = (
         "`?tx`: Bắt đầu game Tài Xỉu\n"
@@ -290,9 +290,6 @@ async def help_cmd(bot_ctx):
         "`?txtt`: Bật/Tắt Auto-start game loop\n"
     )
     await bot_ctx.send(embed=create_embed("📜 Danh sách lệnh", help_text, 0x0099ff))
-
-bot.remove_command("help")
-bot.add_command(help_cmd, name="help")
 
 if __name__ == "__main__":
     bot.run(TOKEN)

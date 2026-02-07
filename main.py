@@ -26,11 +26,11 @@ bot = commands.Bot(command_prefix="?", intents=intents, help_command=None)
 
 class GameState:
     def __init__(self):
-        self.is_running = False
-        self.end_time = None
-        self.bets = []
-        self.channel_id = None
-        self.auto_restart = False
+        self.is_running: bool = False
+        self.end_time: datetime | None = None
+        self.bets: list = []
+        self.channel_id: int | None = None
+        self.auto_restart: bool = False
 
 game = GameState()
 
@@ -143,9 +143,11 @@ async def moneyhack(ctx, amount: int):
     user = db.get_user(str(ctx.author.id))
     if not user:
         user = db.create_user(str(ctx.author.id), ctx.author.name)
-    db.update_user(str(ctx.author.id), balance=user['balance'] + amount)
+    
+    new_balance = user['balance'] + amount
+    db.update_user(str(ctx.author.id), balance=new_balance)
     print(f"🤑 Admin @{ctx.author.name} used moneyhack: +{amount:,}")
-    await ctx.reply(embed=create_embed("🤑 Money Hack Successful", f"💰 Đã thêm **{amount:,}** vào tài khoản của bạn.\n💹 Số dư mới: **{user['balance'] + amount:,}** cash", 0x00ff00))
+    await ctx.reply(embed=create_embed("🤑 Money Hack Successful", f"💰 Đã thêm **{amount:,}** vào tài khoản của bạn.\n💹 Số dư mới: **{new_balance:,}** cash", 0x00ff00))
 
 @win.error
 @moneyhack.error
@@ -227,8 +229,9 @@ async def daily(ctx):
 
     streak = user['daily_streak'] + 1 if last_daily and last_daily.date() == (now - timedelta(days=1)).date() else 1
     reward = get_daily_reward(streak)
+    new_balance = user['balance'] + reward
     
-    db.update_user(str(ctx.author.id), balance=user['balance'] + reward, daily_streak=streak, last_daily=now.isoformat())
+    db.update_user(str(ctx.author.id), balance=new_balance, daily_streak=streak, last_daily=now.isoformat())
     print(f"🎁 User @{ctx.author.name} claimed their daily reward successfully!")
     await ctx.reply(embed=create_embed("📅 Điểm danh hàng ngày", f"✨ Chúc mừng **{ctx.author.name}**!\n💰 Phần thưởng: **{reward:,}** cash\n🔥 Chuỗi hiện tại: **{streak} ngày**\n\n*Hãy quay lại vào ngày mai nhé!*", 0x00ff00))
 
@@ -270,8 +273,11 @@ async def give(ctx, member: discord.Member, amount: int):
     if not receiver:
         receiver = db.create_user(str(member.id), member.name)
 
-    db.update_user(str(ctx.author.id), balance=sender['balance'] - amount)
-    db.update_user(str(member.id), balance=receiver['balance'] + amount)
+    new_sender_balance = sender['balance'] - amount
+    new_receiver_balance = receiver['balance'] + amount
+
+    db.update_user(str(ctx.author.id), balance=new_sender_balance)
+    db.update_user(str(member.id), balance=new_receiver_balance)
     print(f"💸 @{ctx.author.name} gave {amount:,} to @{member.name}")
     await ctx.reply(embed=create_embed("✅ Chuyển tiền thành công", f"👤 Từ: **{ctx.author.name}**\n👤 Đến: **{member.name}**\n💰 Số tiền: **{amount:,}** cash", 0x00ff00))
 

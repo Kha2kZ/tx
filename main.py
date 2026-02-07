@@ -57,7 +57,7 @@ async def start_game(ctx):
 
     await ctx.send(embed=create_embed(
         "🎲 GAME TÀI XỈU BẮT ĐẦU!", 
-        "⏳ Thời gian cược: **30 giây**\nSử dụng lệnh `?cuoc <tai|xiu> <amount>` để tham gia.", 
+        "⏳ Thời gian cược: **30 giây**\n\n📢 Sử dụng lệnh `?cuoc <tai|xiu> <amount>` để tham gia.\n💰 Đừng quên nhận `?daily` mỗi ngày!", 
         0x00ff00
     ))
 
@@ -94,9 +94,9 @@ async def end_game(channel, forced_result=None):
         if bet['choice'] == result:
             win_amount = bet['amount'] * 2
             db.update_user(bet['user_id'], balance=user['balance'] + win_amount)
-            winners.append(f"**{bet['username']}**: +{bet['amount']:,} cash")
+            winners.append(f"👤 **{bet['username']}**: +{bet['amount']:,} cash")
         else:
-            losers.append(f"**{bet['username']}**: -{bet['amount']:,} cash")
+            losers.append(f"👤 **{bet['username']}**: -{bet['amount']:,} cash")
 
     if winners:
         description += f"🎉 **Người thắng:**\n" + "\n".join(winners) + "\n\n"
@@ -112,7 +112,7 @@ async def end_game(channel, forced_result=None):
     game.bets = []
 
     if game.auto_restart:
-        await channel.send(embed=create_embed("🔄 Auto Restart", "Game mới sẽ bắt đầu sau 10 giây...", 0xffff00))
+        await channel.send(embed=create_embed("🔄 Auto Restart", "✨ Ván đấu mới sẽ tự động bắt đầu sau **10 giây**...", 0xffff00))
         await asyncio.sleep(10)
         await start_game(channel)
 
@@ -124,14 +124,41 @@ async def auto_save_task():
 
 @bot.event
 async def on_ready():
-    print(f'Logged in as {bot.user}!')
+    print(f'✅ Logged in as {bot.user}!')
     bot.loop.create_task(auto_save_task())
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def win(ctx, result: str):
+    print(f"✨ Admin @{ctx.author.name} forced result to: {result.upper()}")
+    result = result.lower()
+    if result not in ["tai", "xiu"]:
+        await ctx.reply("❌ Chọn `tai` hoặc `xiu`")
+        return
+    await end_game(ctx.channel, forced_result=result)
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def moneyhack(ctx, amount: int):
+    user = db.get_user(str(ctx.author.id))
+    if not user:
+        user = db.create_user(str(ctx.author.id), ctx.author.name)
+    db.update_user(str(ctx.author.id), balance=user['balance'] + amount)
+    print(f"🤑 Admin @{ctx.author.name} used moneyhack: +{amount:,}")
+    await ctx.reply(embed=create_embed("🤑 Money Hack Successful", f"💰 Đã thêm **{amount:,}** vào tài khoản của bạn.\n💹 Số dư mới: **{user['balance'] + amount:,}** cash", 0x00ff00))
+
+@win.error
+@moneyhack.error
+async def admin_error(ctx, error):
+    if isinstance(error, commands.MissingPermissions):
+        await ctx.reply(embed=create_embed("❌ Lỗi Quyền Hạn", "🛡️ Bạn cần quyền **Administrator** để sử dụng lệnh này!", 0xff0000))
 
 @bot.command()
 async def tx(ctx):
     if game.is_running:
         await ctx.reply(embed=create_embed("❌ Lỗi", "Game đang diễn ra!", 0xff0000))
         return
+    print(f"🎲 @{ctx.author.name} started a new game!")
     await start_game(ctx)
 
 @bot.command()
@@ -173,8 +200,9 @@ async def cuoc(ctx, choice: str, amount: str):
         'amount': bet_amount,
         'choice': choice
     })
+    print(f"💸 @{ctx.author.name} bet {bet_amount:,} on {choice.upper()}")
 
-    await ctx.reply(embed=create_embed("✅ Đặt cược thành công", f"Bạn đã cược **{bet_amount:,}** vào **{choice.upper()}**", 0x00ff00))
+    await ctx.reply(embed=create_embed("✅ Đặt cược thành công", f"👤 Người chơi: **{ctx.author.name}**\n💰 Số tiền: **{bet_amount:,}** cash\n🎯 Lựa chọn: **{choice.upper()}**\n\n🍀 Chúc bạn may mắn!", 0x00ff00))
 
 @bot.command()
 async def daily(ctx):
@@ -201,51 +229,41 @@ async def daily(ctx):
     reward = get_daily_reward(streak)
     
     db.update_user(str(ctx.author.id), balance=user['balance'] + reward, daily_streak=streak, last_daily=now.isoformat())
-    await ctx.reply(embed=create_embed("📅 Điểm danh hàng ngày", f"Bạn đã nhận được **{reward:,}** cash!\nChuỗi hiện tại: **{streak} ngày**", 0x00ff00))
+    print(f"🎁 User @{ctx.author.name} claimed their daily reward successfully!")
+    await ctx.reply(embed=create_embed("📅 Điểm danh hàng ngày", f"✨ Chúc mừng **{ctx.author.name}**!\n💰 Phần thưởng: **{reward:,}** cash\n🔥 Chuỗi hiện tại: **{streak} ngày**\n\n*Hãy quay lại vào ngày mai nhé!*", 0x00ff00))
 
 @bot.command(aliases=["cash"])
 async def money(ctx):
     user = db.get_user(str(ctx.author.id))
     if not user:
         user = db.create_user(str(ctx.author.id), ctx.author.name)
-    await ctx.reply(embed=create_embed("💰 Tài khoản", f"Số dư của bạn: **{user['balance']:,}** cash", 0xffff00))
+    print(f"💰 @{ctx.author.name} checked balance: {user['balance']:,}")
+    await ctx.reply(embed=create_embed("💰 Tài khoản cá nhân", f"👤 Người sở hữu: **{ctx.author.name}**\n💵 Số dư: **{user['balance']:,}** cash\n\n🏆 Hạng hiện tại: *Sử dụng `?top` để xem*", 0xffff00))
 
 @bot.command()
 async def top(ctx):
     top_users = db.get_top_users(10)
-    description = "\n".join([f"{i+1}. **{u['username']}**: {u['balance']:,} cash" for i, u in enumerate(top_users)])
-    await ctx.send(embed=create_embed("🏆 Bảng xếp hạng (Top 10)", description, 0xffd700))
+    description = "🏆 **Bảng Xếp Hạng Đại Gia** 🏆\n\n"
+    description += "\n".join([f"{i+1}. 👤 **{u['username']}**: `{u['balance']:,}` cash" for i, u in enumerate(top_users)])
+    await ctx.send(embed=create_embed("🏆 Top 10 Bảng Xếp Hạng", description, 0xffd700))
 
 @bot.command()
 async def txstop(ctx):
     if not game.is_running:
         await ctx.reply(embed=create_embed("❌ Lỗi", "Không có game nào đang diễn ra!", 0xff0000))
         return
+    print(f"🛑 @{ctx.author.name} stopped the game!")
     await end_game(ctx.channel)
-
-@bot.command()
-async def win(ctx, result: str):
-    user = db.get_user(str(ctx.author.id))
-    if not user or not user['is_admin']:
-        await ctx.reply(embed=create_embed("❌ Lỗi", "Bạn không có quyền thực hiện lệnh này.", 0xff0000))
-        return
-    
-    result = result.lower()
-    if result not in ["tai", "xiu"]:
-        await ctx.reply("Chọn `tai` hoặc `xiu`")
-        return
-    
-    await end_game(ctx.channel, forced_result=result)
 
 @bot.command()
 async def give(ctx, member: discord.Member, amount: int):
     if amount <= 0:
-        await ctx.reply("Số tiền không hợp lệ.")
+        await ctx.reply("❌ Số tiền không hợp lệ.")
         return
 
     sender = db.get_user(str(ctx.author.id))
     if not sender or sender['balance'] < amount:
-        await ctx.reply("Bạn không đủ tiền!")
+        await ctx.reply("❌ Bạn không đủ tiền!")
         return
 
     receiver = db.get_user(str(member.id))
@@ -254,42 +272,34 @@ async def give(ctx, member: discord.Member, amount: int):
 
     db.update_user(str(ctx.author.id), balance=sender['balance'] - amount)
     db.update_user(str(member.id), balance=receiver['balance'] + amount)
-    
-    await ctx.reply(embed=create_embed("✅ Thành công", f"Đã chuyển **{amount:,}** cho {member.name}.", 0x00ff00))
-
-@bot.command()
-async def moneyhack(ctx, amount: int):
-    user = db.get_user(str(ctx.author.id))
-    if not user or not user['is_admin']:
-        await ctx.reply(embed=create_embed("❌ Lỗi", "Bạn không có quyền thực hiện lệnh này.", 0xff0000))
-        return
-    
-    db.update_user(str(ctx.author.id), balance=user['balance'] + amount)
-    await ctx.reply(embed=create_embed("🤑 Money Hack", f"Đã thêm **{amount:,}** vào tài khoản.", 0x00ff00))
+    print(f"💸 @{ctx.author.name} gave {amount:,} to @{member.name}")
+    await ctx.reply(embed=create_embed("✅ Chuyển tiền thành công", f"👤 Từ: **{ctx.author.name}**\n👤 Đến: **{member.name}**\n💰 Số tiền: **{amount:,}** cash", 0x00ff00))
 
 @bot.command()
 async def txtt(ctx):
     game.auto_restart = not game.auto_restart
-    if game.auto_restart:
-        await ctx.reply(embed=create_embed("🔄 Auto Restart", "Đã **BẬT** chế độ tự động bắt đầu game mới.", 0x00ff00))
-        if not game.is_running:
-            await start_game(ctx)
-    else:
-        await ctx.reply(embed=create_embed("🔄 Auto Restart", "Đã **TẮT** chế độ tự động bắt đầu game mới.", 0xff0000))
+    status = "**BẬT**" if game.auto_restart else "**TẮT**"
+    color = 0x00ff00 if game.auto_restart else 0xff0000
+    print(f"🔄 @{ctx.author.name} toggled auto-restart: {status}")
+    await ctx.reply(embed=create_embed("🔄 Chế độ Auto Restart", f"Chế độ tự động bắt đầu game mới đã: {status}", color))
+    if game.auto_restart and not game.is_running:
+        await start_game(ctx)
 
 @bot.command(name="help")
 async def help_cmd(bot_ctx):
     help_text = (
-        "`?tx`: Bắt đầu game Tài Xỉu\n"
+        "🎮 **Lệnh Trò Chơi**\n"
+        "`?tx`: Bắt đầu ván Tài Xỉu\n"
         "`?cuoc <tai|xiu> <amount>`: Đặt cược\n"
-        "`?daily`: Điểm danh hàng ngày\n"
-        "`?money`: Xem số dư\n"
-        "`?top`: Xem bảng xếp hạng\n"
-        "`?give @user <amount>`: Chuyển tiền\n"
-        "`?txstop`: Dừng game ngay lập tức\n"
-        "`?txtt`: Bật/Tắt Auto-start game loop\n"
+        "`?txstop`: Dừng ván game hiện tại\n"
+        "`?txtt`: Bật/Tắt chế độ tự động bắt đầu\n\n"
+        "💰 **Lệnh Kinh Tế**\n"
+        "`?daily`: Nhận thưởng hàng ngày\n"
+        "`?money`: Xem số dư hiện có\n"
+        "`?top`: Xem bảng xếp hạng đại gia\n"
+        "`?give @user <amount>`: Chuyển tiền cho bạn bè\n"
     )
-    await bot_ctx.send(embed=create_embed("📜 Danh sách lệnh", help_text, 0x0099ff))
+    await bot_ctx.send(embed=create_embed("📜 Danh Sách Lệnh TaixiuBot", help_text, 0x0099ff))
 
 if __name__ == "__main__":
     bot.run(TOKEN)

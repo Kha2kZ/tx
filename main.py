@@ -194,8 +194,9 @@ async def cuoc(ctx, choice: str, amount: str):
 
     # Re-fetch user to ensure balance is up to date before checking
     user = db.get_user(str(ctx.author.id))
-    if user['balance'] < bet_amount:
-        await ctx.reply(embed=create_embed("❌ Lỗi", f"Bạn không đủ tiền! Số dư hiện tại: **{user['balance']:,}** cash", 0xff0000))
+    if not user or user['balance'] < bet_amount:
+        current_balance = user['balance'] if user else 0
+        await ctx.reply(embed=create_embed("❌ Lỗi", f"Bạn không đủ tiền! Số dư hiện tại: **{current_balance:,}** cash", 0xff0000))
         return
 
     new_balance = user['balance'] - bet_amount

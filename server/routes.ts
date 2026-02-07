@@ -1,16 +1,25 @@
 import type { Express } from "express";
-import { createServer, type Server } from "http";
+import type { Server } from "http";
 import { storage } from "./storage";
+import { api } from "@shared/routes";
+import { startBot } from "./bot";
 
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
-  // put application routes here
-  // prefix all routes with /api
+  // Start the Discord Bot
+  startBot();
 
-  // use storage to perform CRUD operations on the storage interface
-  // e.g. storage.insertUser(user) or storage.getUserByUsername(username)
+  // API Routes
+  app.get(api.leaderboard.list.path, async (req, res) => {
+    const topUsers = await storage.getTopUsers(50);
+    res.json(topUsers.map(u => ({
+      username: u.username,
+      balance: u.balance,
+      discordId: u.discordId
+    })));
+  });
 
   return httpServer;
 }

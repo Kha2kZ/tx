@@ -182,20 +182,24 @@ async def cuoc(ctx, choice: str, amount: str):
         bet_amount = user['balance']
     else:
         try:
-            bet_amount = int(amount)
+            # Handle potential commas or dots in amount string if any
+            bet_amount = int(amount.replace(",", "").replace(".", ""))
         except ValueError:
             await ctx.reply(embed=create_embed("❌ Lỗi", "Số tiền không hợp lệ.", 0xff0000))
             return
 
     if bet_amount <= 0:
-        await ctx.reply(embed=create_embed("❌ Lỗi", "Số tiền không hợp lệ.", 0xff0000))
+        await ctx.reply(embed=create_embed("❌ Lỗi", "Số tiền phải lớn hơn 0.", 0xff0000))
         return
 
+    # Re-fetch user to ensure balance is up to date before checking
+    user = db.get_user(str(ctx.author.id))
     if user['balance'] < bet_amount:
-        await ctx.reply(embed=create_embed("❌ Lỗi", "Bạn không đủ tiền!", 0xff0000))
+        await ctx.reply(embed=create_embed("❌ Lỗi", f"Bạn không đủ tiền! Số dư hiện tại: **{user['balance']:,}** cash", 0xff0000))
         return
 
-    db.update_user(str(ctx.author.id), balance=user['balance'] - bet_amount)
+    new_balance = user['balance'] - bet_amount
+    db.update_user(str(ctx.author.id), balance=new_balance)
     game.bets.append({
         'user_id': str(ctx.author.id),
         'username': ctx.author.name,
@@ -307,5 +311,20 @@ async def help_cmd(bot_ctx):
     )
     await bot_ctx.send(embed=create_embed("📜 Danh Sách Lệnh TaixiuBot", help_text, 0x0099ff))
 
+async def main():
+    while True:
+        try:
+            await bot.start(TOKEN)
+        except discord.errors.HTTPException as e:
+            if e.status == 429:
+                wait_time = int(e.response.headers.get("Retry-After", 60))
+                print(f"⚠️ Rate limited. Retrying in {wait_time} seconds...")
+                await asyncio.sleep(wait_time)
+            else:
+                raise e
+        except Exception as e:
+            print(f"❌ Unexpected error: {e}")
+            await asyncio.sleep(10)
+
 if __name__ == "__main__":
-    bot.run(TOKEN)
+    asyncio.run(main())

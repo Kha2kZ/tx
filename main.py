@@ -99,7 +99,10 @@ class GameState:
         self.auto_restart: bool = False
 
 game = GameState()
+
+# ===== INIT DATABASE =====
 db = DataManager(LOCAL_DATA_PATH, DRIVE_DATA_PATH)
+db.load()  # 🔥 LOAD DATA IMMEDIATELY
 
 # ===== GAME CONSTANTS =====
 DAILY_REWARDS = [1000, 2000, 5000, 10000, 15000, 20000, 50000, 100000, 150000, 200000, 500000, 1000000]
@@ -201,8 +204,12 @@ async def auto_save_task():
 @bot.event
 async def on_ready():
     print(f'✅ Logged in as {bot.user}!')
-    load_data()
     bot.loop.create_task(auto_save_task())
+
+@bot.event
+async def on_command_error(ctx, error):
+    await ctx.send(f"❌ Lỗi: {error}")
+    raise error
 
 # ===== ADMIN COMMANDS =====
 @bot.command()

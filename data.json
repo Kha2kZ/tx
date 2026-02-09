@@ -1,10 +1,3 @@
-[
-    {
-        "discord_id": "1162634460882272267",
-        "username": "khai2kzgaming",
-        "balance": 363636363636363636364736,
-        "daily_streak": 1,
-        "last_daily": "2026-02-07 06:44:04.674933-07:00",
-        "is_admin": false
-    }
-]
+{
+  "users": {}
+}

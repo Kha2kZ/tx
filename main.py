@@ -388,7 +388,11 @@ async def help_cmd(bot_ctx):
         "`?daily`: Nhận thưởng hàng ngày\n"
         "`?money`: Xem số dư hiện có\n"
         "`?top`: Xem bảng xếp hạng đại gia\n"
-        "`?give @user <amount>`: Chuyển tiền cho bạn bè\n"
+        "`?give @user <amount>`: Chuyển tiền cho bạn bè\n\n"
+        "🎰 **Trò Chơi Khác**\n"
+        "`?blackjack <amount>`: Chơi Blackjack\n"
+        "`?coinflip <1|2> <amount>`: Tung đồng xu (1: Trước, 2: Sau)\n"
+        "`?slots <amount>`: Quay Slot hoa quả\n"
     )
     await bot_ctx.send(embed=create_embed("📜 Danh Sách Lệnh TaixiuBot", help_text, 0x0099ff))
 
@@ -564,6 +568,95 @@ async def blackjack(ctx, amount: str):
 async def ping(ctx):
     latency = round(bot.latency * 1000)
     await ctx.reply(embed=create_embed("🏓 PONG!", f"Bot đang online!\n📶 Độ trễ: **{latency}ms**", 0x00ff00))
+
+@bot.command(aliases=["cf"])
+async def coinflip(ctx, choice: str, amount: str):
+    user = db.get_user(str(ctx.author.id))
+    if not user:
+        user = db.create_user(str(ctx.author.id), ctx.author.name)
+
+    if choice not in ["1", "2"]:
+        return await ctx.reply("❌ Lựa chọn không hợp lệ! Sử dụng `1` cho mặt trước hoặc `2` cho mặt sau.")
+
+    if amount.lower() == "all":
+        bet = user['balance']
+    else:
+        try:
+            bet = int(amount.replace(",", "").replace(".", ""))
+        except ValueError:
+            return await ctx.reply("❌ Số tiền không hợp lệ.")
+
+    if bet <= 0 or user['balance'] < bet:
+        return await ctx.reply(f"❌ Bạn không đủ tiền! Số dư: **{user['balance']:,}** cash")
+
+    db.update_user(str(ctx.author.id), balance=user['balance'] - bet)
+    
+    face_name = "Trước (1)" if choice == "1" else "Sau (2)"
+    embed = create_embed("🪙 COINFLIP", f"@{ctx.author.name}, Bạn đã cược **{bet:,}** và chọn **{face_name}**\n\n🪙 *Đồng xu đang quay...*", 0x0099ff)
+    msg = await ctx.send(embed=embed)
+    
+    await asyncio.sleep(3)
+    
+    result = random.choice(["1", "2"])
+    result_name = "Trước (1)" if result == "1" else "Sau (2)"
+    
+    if result == choice:
+        win_amount = bet * 2
+        db.update_user(str(ctx.author.id), balance=db.get_user(str(ctx.author.id))['balance'] + win_amount)
+        embed = create_embed("🪙 COINFLIP - CHIẾN THẮNG", f"💎 Kết quả là: **{result_name}**\n\nChúc mừng! Bạn đã thắng **{win_amount:,}** cash!", 0x00ff00)
+    else:
+        embed = create_embed("🪙 COINFLIP - THẤT BẠI", f"💀 Kết quả là: **{result_name}**\n\nBạn đã cook hết:))", 0xff0000)
+    
+    await msg.edit(embed=embed)
+
+@bot.command()
+async def slots(ctx, amount: str):
+    user = db.get_user(str(ctx.author.id))
+    if not user:
+        user = db.create_user(str(ctx.author.id), ctx.author.name)
+
+    if amount.lower() == "all":
+        bet = user['balance']
+    else:
+        try:
+            bet = int(amount.replace(",", "").replace(".", ""))
+        except ValueError:
+            return await ctx.reply("❌ Số tiền không hợp lệ.")
+
+    if bet <= 0 or user['balance'] < bet:
+        return await ctx.reply(f"❌ Bạn không đủ tiền! Số dư: **{user['balance']:,}** cash")
+
+    db.update_user(str(ctx.author.id), balance=user['balance'] - bet)
+    
+    emojis = ["🍒", "🍋", "🍇", "🔔", "⭐", "💎", "7️⃣"]
+    results = [random.choice(emojis) for _ in range(3)]
+    
+    slot_machine = f" | {' | '.join(results)} | "
+    
+    # Win calculation
+    if results[0] == results[1] == results[2]:
+        if results[0] == "7️⃣": multiplier = 10
+        elif results[0] == "💎": multiplier = 8
+        elif results[0] == "⭐": multiplier = 5
+        else: multiplier = 3
+        
+        win_amount = bet * multiplier
+        db.update_user(str(ctx.author.id), balance=db.get_user(str(ctx.author.id))['balance'] + win_amount)
+        title = "🎰 SLOT MACHINE - JACKPOT!"
+        desc = f"**{slot_machine}**\n\nĐỉnh quá! Bạn đã trúng lớn và nhận được **{win_amount:,}** cash!"
+        color = 0x00ff00
+    elif results[0] == results[1] or results[1] == results[2] or results[0] == results[2]:
+        win_amount = int(bet * 1.5)
+        db.update_user(str(ctx.author.id), balance=db.get_user(str(ctx.author.id))['balance'] + win_amount)
+        title = "🎰 SLOT MACHINE - THẮNG NHỎ"
+        desc = f"**{slot_machine}**\n\nKhá lắm! Bạn nhận được **{win_amount:,}** cash!"
+        color = 0xffff00
+    else:
+        title = "🎰 SLOT MACHINE - THUA"
+        desc = f"**{slot_machine}**\n\nRất tiếc, chúc bạn may mắn lần sau!"
+        color = 0xff0000
+
+    await ctx.send(embed=create_embed(title, desc, color))
 
 # ===== MAIN LOOP =====
 async def main():

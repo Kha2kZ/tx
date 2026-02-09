@@ -5,6 +5,7 @@ import discord
 from discord.ext import commands
 from datetime import datetime, timedelta, timezone
 import json
+from discord import ui
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -22,25 +23,17 @@ def get_now_utc7():
 
 # ===== PATHS =====
 LOCAL_DATA_PATH = "data.json"
-DRIVE_DATA_PATH = "/content/drive/MyDrive/TaiXiuBot/data.json"
 
 # ===== DATA MANAGER =====
 class DataManager:
-    def __init__(self, local_path, drive_path):
+    def __init__(self, local_path):
         self.local_path = local_path
-        self.drive_path = drive_path
         self.data = {"users": {}}
 
     def load(self):
-        path = None
-        if os.path.exists(self.drive_path):
-            path = self.drive_path
-        elif os.path.exists(self.local_path):
-            path = self.local_path
-
-        if path:
+        if os.path.exists(self.local_path):
             try:
-                with open(path, "r", encoding="utf-8") as f:
+                with open(self.local_path, "r", encoding="utf-8") as f:
                     loaded = json.load(f)
 
                 if not isinstance(loaded, dict) or "users" not in loaded:
@@ -49,7 +42,7 @@ class DataManager:
                     self.save()
                 else:
                     self.data = loaded
-                    print(f"📥 Loaded data.json from {path}")
+                    print(f"📥 Loaded data.json from {self.local_path}")
             except Exception as e:
                 print(f"❌ Failed to load data.json: {e}")
                 self.data = {"users": {}}
@@ -58,12 +51,12 @@ class DataManager:
             print("⚠️ No data.json found. Starting fresh.")
 
     def save(self):
-        os.makedirs(os.path.dirname(self.drive_path), exist_ok=True)
-        with open(self.local_path, "w", encoding="utf-8") as f:
-            json.dump(self.data, f, ensure_ascii=False, indent=2)
-        with open(self.drive_path, "w", encoding="utf-8") as f:
-            json.dump(self.data, f, ensure_ascii=False, indent=2)
-        print("💾 Saved data.json")
+        try:
+            with open(self.local_path, "w", encoding="utf-8") as f:
+                json.dump(self.data, f, ensure_ascii=False, indent=2)
+            print("💾 Saved data.json")
+        except Exception as e:
+            print(f"❌ Failed to save data.json: {e}")
 
     def get_user(self, user_id):
         return self.data.get("users", {}).get(user_id)
@@ -94,7 +87,7 @@ class DataManager:
         return users[:limit]
 
 # ===== INIT DB =====
-db = DataManager(LOCAL_DATA_PATH, DRIVE_DATA_PATH)
+db = DataManager(LOCAL_DATA_PATH)
 db.load()
 
 # ===== BOT SETUP =====
@@ -398,6 +391,121 @@ async def help_cmd(bot_ctx):
         "`?give @user <amount>`: Chuyển tiền cho bạn bè\n"
     )
     await bot_ctx.send(embed=create_embed("📜 Danh Sách Lệnh TaixiuBot", help_text, 0x0099ff))
+
+# ===== BLACKJACK LOGIC =====
+CARD_VALUES = {
+    '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9, '10': 10,
+    'J': 10, 'Q': 10, 'K': 10, 'A': 11
+}
+CARDS = list(CARD_VALUES.keys())
+
+def calculate_hand(hand):
+    value = sum(CARD_VALUES[card] for card in hand)
+    aces = hand.count('A')
+    while value > 21 and aces > 0:
+        value -= 10
+        aces -= 1
+    return value
+
+class BlackjackView(ui.View):
+    def __init__(self, ctx, bet, player_hand, dealer_hand):
+        super().__init__(timeout=60)
+        self.ctx = ctx
+        self.bet = bet
+        self.player_hand = player_hand
+        self.dealer_hand = dealer_hand
+        self.ended = False
+
+    async def end_game(self, interaction, title, description, color):
+        self.ended = True
+        for child in self.children:
+            if hasattr(child, "disabled"):
+                child.disabled = True
+        
+        embed = create_embed(title, description, color)
+        embed.add_field(name="Nhà cái", value=f"{self.dealer_hand} (Tổng: {calculate_hand(self.dealer_hand)})", inline=True)
+        embed.add_field(name=self.ctx.author.name, value=f"{self.player_hand} (Tổng: {calculate_hand(self.player_hand)})", inline=True)
+        
+        if interaction.message:
+            await interaction.response.edit_message(embed=embed, view=self)
+
+    @ui.button(label="Bốc (Hit)", style=discord.ButtonStyle.green, emoji="➕")
+    async def hit(self, interaction: discord.Interaction, button: ui.Button):
+        if interaction.user.id != self.ctx.author.id:
+            return await interaction.response.send_message("Đây không phải ván bài của bạn!", ephemeral=True)
+        
+        self.player_hand.append(random.choice(CARDS))
+        player_value = calculate_hand(self.player_hand)
+        
+        if player_value > 21:
+            await self.end_game(interaction, "💥 QUÁ 21 (BUST)!", f"Bạn đã bốc quá 21 và thua **{self.bet:,}** cash!", 0xff0000)
+        else:
+            if interaction.message and interaction.message.embeds:
+                embed = interaction.message.embeds[0]
+                embed.set_field_at(1, name=self.ctx.author.name, value=f"{self.player_hand} (Tổng: {player_value})", inline=True)
+                await interaction.response.edit_message(embed=embed, view=self)
+
+    @ui.button(label="Dằn (Stand)", style=discord.ButtonStyle.red, emoji="✋")
+    async def stand(self, interaction: discord.Interaction, button: ui.Button):
+        if interaction.user.id != self.ctx.author.id:
+            return await interaction.response.send_message("Đây không phải ván bài của bạn!", ephemeral=True)
+        
+        while calculate_hand(self.dealer_hand) < 17:
+            self.dealer_hand.append(random.choice(CARDS))
+        
+        dealer_value = calculate_hand(self.dealer_hand)
+        player_value = calculate_hand(self.player_hand)
+        
+        user_data = db.get_user(str(self.ctx.author.id))
+        current_balance = user_data['balance'] if user_data else 0
+        
+        if dealer_value > 21:
+            win_amount = self.bet * 2
+            db.update_user(str(self.ctx.author.id), balance=current_balance + win_amount)
+            await self.end_game(interaction, "🎉 THẮNG!", f"Nhà cái BUST! Bạn nhận được **{win_amount:,}** cash!", 0x00ff00)
+        elif player_value > dealer_value:
+            win_amount = self.bet * 2
+            db.update_user(str(self.ctx.author.id), balance=current_balance + win_amount)
+            await self.end_game(interaction, "🎉 THẮNG!", f"Bạn cao điểm hơn nhà cái! Nhận được **{win_amount:,}** cash!", 0x00ff00)
+        elif player_value == dealer_value:
+            db.update_user(str(self.ctx.author.id), balance=current_balance + self.bet)
+            await self.end_game(interaction, "🤝 HÒA (PUSH)!", f"Điểm bằng nhau! Bạn được hoàn lại **{self.bet:,}** cash!", 0xffff00)
+        else:
+            await self.end_game(interaction, "💀 THUA!", f"Điểm của bạn thấp hơn nhà cái! Mất **{self.bet:,}** cash!", 0xff0000)
+
+@bot.command(aliases=["bj"])
+async def blackjack(ctx, amount: str):
+    user = db.get_user(str(ctx.author.id))
+    if not user:
+        user = db.create_user(str(ctx.author.id), ctx.author.name)
+
+    if amount.lower() == "all":
+        bet = user['balance']
+    else:
+        try:
+            bet = int(amount.replace(",", "").replace(".", ""))
+        except ValueError:
+            return await ctx.reply("❌ Số tiền không hợp lệ.")
+
+    if bet <= 0 or user['balance'] < bet:
+        return await ctx.reply(f"❌ Bạn không đủ tiền! Số dư: **{user['balance']:,}** cash")
+
+    db.update_user(str(ctx.author.id), balance=user['balance'] - bet)
+    
+    player_hand = [random.choice(CARDS), random.choice(CARDS)]
+    dealer_hand = [random.choice(CARDS), random.choice(CARDS)]
+    
+    embed = create_embed("🃏 BLACKJACK", f"@{ctx.author.name}, Bạn đã cược **{bet:,}** vào game!", 0x0099ff)
+    embed.add_field(name="Nhà cái", value=f"[{dealer_hand[0]}, ???]", inline=True)
+    embed.add_field(name=ctx.author.name, value=f"{player_hand} (Tổng: {calculate_hand(player_hand)})", inline=True)
+    
+    view = BlackjackView(ctx, bet, player_hand, dealer_hand)
+    await ctx.send(embed=embed, view=view)
+
+@bot.command()
+async def ping(ctx):
+    latency = round(bot.latency * 1000)
+    await ctx.reply(embed=create_embed("🏓 PONG!", f"Bot đang online!\n📶 Độ trễ: **{latency}ms**", 0x00ff00))
 
 # ===== MAIN LOOP =====
 async def main():

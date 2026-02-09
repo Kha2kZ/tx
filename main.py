@@ -1,11 +1,10 @@
 import os
-import json
 import random
 import asyncio
 import discord
 from discord.ext import commands
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
+import json
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -21,28 +20,40 @@ UTC7 = timezone(timedelta(hours=-7))
 def get_now_utc7():
     return datetime.now(timezone.utc).astimezone(UTC7)
 
-# ===== GOOGLE DRIVE DATA PATH =====
-DRIVE_DATA_PATH = "/content/drive/MyDrive/TaiXiuBot/data.json"
+# ===== PATHS =====
 LOCAL_DATA_PATH = "data.json"
+DRIVE_DATA_PATH = "/content/drive/MyDrive/TaiXiuBot/data.json"
 
 # ===== DATA MANAGER =====
 class DataManager:
     def __init__(self, local_path, drive_path):
         self.local_path = local_path
         self.drive_path = drive_path
-        self.data = {
-            "users": {}
-        }
+        self.data = {"users": {}}
 
     def load(self):
+        path = None
         if os.path.exists(self.drive_path):
-            with open(self.drive_path, "r", encoding="utf-8") as f:
-                self.data = json.load(f)
-            print("📥 Loaded data.json from Google Drive.")
+            path = self.drive_path
         elif os.path.exists(self.local_path):
-            with open(self.local_path, "r", encoding="utf-8") as f:
-                self.data = json.load(f)
-            print("📥 Loaded data.json from local file.")
+            path = self.local_path
+
+        if path:
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    loaded = json.load(f)
+
+                if not isinstance(loaded, dict) or "users" not in loaded:
+                    print("⚠️ data.json sai định dạng → reset lại dữ liệu.")
+                    self.data = {"users": {}}
+                    self.save()
+                else:
+                    self.data = loaded
+                    print(f"📥 Loaded data.json from {path}")
+            except Exception as e:
+                print(f"❌ Failed to load data.json: {e}")
+                self.data = {"users": {}}
+                self.save()
         else:
             print("⚠️ No data.json found. Starting fresh.")
 
@@ -52,11 +63,10 @@ class DataManager:
             json.dump(self.data, f, ensure_ascii=False, indent=2)
         with open(self.drive_path, "w", encoding="utf-8") as f:
             json.dump(self.data, f, ensure_ascii=False, indent=2)
-        print("💾 Saved data.json to Drive.")
+        print("💾 Saved data.json")
 
-    # ===== USER OPERATIONS =====
     def get_user(self, user_id):
-        return self.data["users"].get(user_id)
+        return self.data.get("users", {}).get(user_id)
 
     def create_user(self, user_id, username):
         user = {
@@ -65,12 +75,12 @@ class DataManager:
             "daily_streak": 0,
             "last_daily": None
         }
-        self.data["users"][user_id] = user
+        self.data.setdefault("users", {})[user_id] = user
         self.save()
         return user
 
     def update_user(self, user_id, **kwargs):
-        user = self.data["users"].get(user_id)
+        user = self.get_user(user_id)
         if not user:
             return None
         for key, value in kwargs.items():
@@ -79,12 +89,15 @@ class DataManager:
         return user
 
     def get_top_users(self, limit=10):
-        users = list(self.data["users"].values())
+        users = list(self.data.get("users", {}).values())
         users.sort(key=lambda u: u.get("balance", 0), reverse=True)
         return users[:limit]
 
+# ===== INIT DB =====
+db = DataManager(LOCAL_DATA_PATH, DRIVE_DATA_PATH)
+db.load()
 
-# ===== DISCORD BOT SETUP =====
+# ===== BOT SETUP =====
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="?", intents=intents, help_command=None)
@@ -92,19 +105,15 @@ bot = commands.Bot(command_prefix="?", intents=intents, help_command=None)
 # ===== GAME STATE =====
 class GameState:
     def __init__(self):
-        self.is_running: bool = False
-        self.end_time: datetime | None = None
-        self.bets: list = []
-        self.channel_id: int | None = None
-        self.auto_restart: bool = False
+        self.is_running = False
+        self.end_time = None
+        self.bets = []
+        self.channel_id = None
+        self.auto_restart = False
 
 game = GameState()
 
-# ===== INIT DATABASE =====
-db = DataManager(LOCAL_DATA_PATH, DRIVE_DATA_PATH)
-db.load()  # 🔥 LOAD DATA IMMEDIATELY
-
-# ===== GAME CONSTANTS =====
+# ===== CONSTANTS =====
 DAILY_REWARDS = [1000, 2000, 5000, 10000, 15000, 20000, 50000, 100000, 150000, 200000, 500000, 1000000]
 
 def get_daily_reward(day):
@@ -116,13 +125,6 @@ def create_embed(title, description, color=0x0099ff):
     embed = discord.Embed(title=title, description=description, color=color)
     embed.timestamp = get_now_utc7()
     return embed
-
-# ===== DATA LOAD / SAVE =====
-def load_data():
-    db.load()
-
-def save_data():
-    db.save()
 
 # ===== GAME LOGIC =====
 async def start_game(ctx):
@@ -187,6 +189,7 @@ async def end_game(channel, forced_result=None):
 
     await channel.send(embed=create_embed("🏁 KẾT THÚC GAME TÀI XỈU", description, 0xff0000 if result == "tai" else 0xeeeeee))
     
+    game.is_running = False
     game.bets = []
 
     if game.auto_restart:
@@ -197,8 +200,8 @@ async def end_game(channel, forced_result=None):
 # ===== AUTO SAVE TASK =====
 async def auto_save_task():
     while True:
-        await asyncio.sleep(10)
-        save_data()
+        await asyncio.sleep(5)
+        db.save()
 
 # ===== EVENTS =====
 @bot.event
@@ -231,6 +234,7 @@ async def moneyhack(ctx, amount: int):
     
     new_balance = user['balance'] + amount
     db.update_user(str(ctx.author.id), balance=new_balance)
+    print(f"🤑 Admin @{ctx.author.name} used moneyhack: +{amount:,}")
     await ctx.reply(embed=create_embed("🤑 Money Hack Successful", f"💰 Đã thêm **{amount:,}** vào tài khoản của bạn.\n💹 Số dư mới: **{new_balance:,}** cash", 0x00ff00))
 
 @win.error
@@ -239,7 +243,7 @@ async def admin_error(ctx, error):
     if isinstance(error, commands.MissingPermissions):
         await ctx.reply(embed=create_embed("❌ Lỗi Quyền Hạn", "🛡️ Bạn cần quyền **Administrator** để sử dụng lệnh này!", 0xff0000))
 
-# ===== GAME COMMANDS =====
+# ===== USER COMMANDS =====
 @bot.command()
 async def tx(ctx):
     if game.is_running:
@@ -290,6 +294,7 @@ async def cuoc(ctx, choice: str, amount: str):
         'amount': bet_amount,
         'choice': choice
     })
+    print(f"💸 @{ctx.author.name} bet {bet_amount:,} on {choice.upper()}")
 
     await ctx.reply(embed=create_embed("✅ Đặt cược thành công", f"👤 Người chơi: **{ctx.author.name}**\n💰 Số tiền: **{bet_amount:,}** cash\n🎯 Lựa chọn: **{choice.upper()}**\n\n🍀 Chúc bạn may mắn!", 0x00ff00))
 
@@ -319,6 +324,7 @@ async def daily(ctx):
     new_balance = user['balance'] + reward
     
     db.update_user(str(ctx.author.id), balance=new_balance, daily_streak=streak, last_daily=now.isoformat())
+    print(f"🎁 User @{ctx.author.name} claimed their daily reward successfully!")
     await ctx.reply(embed=create_embed("📅 Điểm danh hàng ngày", f"✨ Chúc mừng **{ctx.author.name}**!\n💰 Phần thưởng: **{reward:,}** cash\n🔥 Chuỗi hiện tại: **{streak} ngày**\n\n*Hãy quay lại vào ngày mai nhé!*", 0x00ff00))
 
 @bot.command(aliases=["cash"])
@@ -326,6 +332,7 @@ async def money(ctx):
     user = db.get_user(str(ctx.author.id))
     if not user:
         user = db.create_user(str(ctx.author.id), ctx.author.name)
+    print(f"💰 @{ctx.author.name} checked balance: {user['balance']:,}")
     await ctx.reply(embed=create_embed("💰 Tài khoản cá nhân", f"👤 Người sở hữu: **{ctx.author.name}**\n💵 Số dư: **{user['balance']:,}** cash\n\n🏆 Hạng hiện tại: *Sử dụng `?top` để xem*", 0xffff00))
 
 @bot.command()
@@ -340,6 +347,7 @@ async def txstop(ctx):
     if not game.is_running:
         await ctx.reply(embed=create_embed("❌ Lỗi", "Không có game nào đang diễn ra!", 0xff0000))
         return
+    print(f"🛑 @{ctx.author.name} stopped the game!")
     await end_game(ctx.channel)
 
 @bot.command()
@@ -362,6 +370,7 @@ async def give(ctx, member: discord.Member, amount: int):
 
     db.update_user(str(ctx.author.id), balance=new_sender_balance)
     db.update_user(str(member.id), balance=new_receiver_balance)
+    print(f"💸 @{ctx.author.name} gave {amount:,} to @{member.name}")
     await ctx.reply(embed=create_embed("✅ Chuyển tiền thành công", f"👤 Từ: **{ctx.author.name}**\n👤 Đến: **{member.name}**\n💰 Số tiền: **{amount:,}** cash", 0x00ff00))
 
 @bot.command()
@@ -369,6 +378,7 @@ async def txtt(ctx):
     game.auto_restart = not game.auto_restart
     status = "**BẬT**" if game.auto_restart else "**TẮT**"
     color = 0x00ff00 if game.auto_restart else 0xff0000
+    print(f"🔄 @{ctx.author.name} toggled auto-restart: {status}")
     await ctx.reply(embed=create_embed("🔄 Chế độ Auto Restart", f"Chế độ tự động bắt đầu game mới đã: {status}", color))
     if game.auto_restart and not game.is_running:
         await start_game(ctx)

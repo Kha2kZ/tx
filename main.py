@@ -446,7 +446,7 @@ class BlackjackView(ui.View):
         if interaction.message:
             await interaction.response.edit_message(embed=embed, view=self)
 
-    @ui.button(label="Bốc (Hit)", style=discord.ButtonStyle.green, emoji="➕")
+    @ui.button(label="Bốc (Hit)", style=discord.ButtonStyle.green, emoji="✅")
     async def hit(self, interaction: discord.Interaction, button: ui.Button):
         if interaction.user.id != self.ctx.author.id:
             return await interaction.response.send_message("Đây không phải ván bài của bạn!", ephemeral=True)

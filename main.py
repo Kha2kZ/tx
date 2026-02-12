@@ -684,25 +684,37 @@ class BlackjackView(ui.View):
         if interaction.user.id != self.ctx.author.id:
             return await interaction.response.send_message("Đây không phải ván bài của bạn!", ephemeral=True)
         
+        # Stand minimum rule (at least 15)
+        player_value = calculate_hand(self.player_hand)
+        player_special = check_special_win(self.player_hand)
+        if player_value < 15 and not player_special:
+            db.update_stats(str(self.ctx.author.id), False, self.bet)
+            await self.end_game(interaction, "💀 THUA (NON)!", f"Bạn chưa đủ 15 điểm đã dằn bài và thua **{self.bet:,}** cash!", 0xff0000)
+            return
+
+        # Dealer balancing
         while calculate_hand(self.dealer_hand) < 17:
             self.dealer_hand.append(random.choice(CARDS))
             if check_special_win(self.dealer_hand):
                 break
         
         dealer_value = calculate_hand(self.dealer_hand)
-        player_value = calculate_hand(self.player_hand)
         dealer_special = check_special_win(self.dealer_hand)
-        player_special = check_special_win(self.player_hand)
         
         user_data = db.get_user(str(self.ctx.author.id))
         current_balance = user_data['balance'] if user_data else 0
         
+        # Resolve win/loss
         win = False
         push = False
+        dealer_is_non = dealer_value < 15 and not dealer_special
+
         if dealer_special and not player_special:
             win = False
         elif player_special and not dealer_special:
             win = True
+        elif dealer_is_non:
+            win = True # Dealer loses if stand under 15
         elif dealer_value > 21:
             win = True
         elif player_value > dealer_value:
@@ -719,7 +731,10 @@ class BlackjackView(ui.View):
             win_amount = self.bet * 2
             db.update_user(str(self.ctx.author.id), balance=current_balance + win_amount)
             db.update_stats(str(self.ctx.author.id), True, self.bet)
-            msg = f"Bạn đã thắng vì **{player_special}**" if player_special else "Bạn cao điểm hơn nhà cái!"
+            if dealer_is_non:
+                msg = "Nhà cái chưa đủ 15 điểm (NON)!"
+            else:
+                msg = f"Bạn đã thắng vì **{player_special}**" if player_special else "Bạn cao điểm hơn nhà cái!"
             await self.end_game(interaction, "🎉 THẮNG!", f"{msg} Nhận được **{win_amount:,}** cash!", 0x00ff00)
         else:
             db.update_stats(str(self.ctx.author.id), False, self.bet)

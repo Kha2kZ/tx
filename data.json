@@ -2,12 +2,12 @@
   "users": {
     "1162634460882272267": {
       "username": "khai2kzgaming",
-      "balance": 250,
+      "balance": "inf",
       "daily_streak": 1,
       "last_daily": "2026-02-12T01:39:17.811844-07:00",
       "losses": 9,
       "total_bet": 30000000000000000005647,
-      "wins": 6
+      "wins": 7
     }
   }
 }

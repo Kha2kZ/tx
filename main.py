@@ -505,9 +505,8 @@ async def cuoc(ctx, choice: str, amount: str):
 
     if amount.lower() == "all":
         if user['balance'] == "inf":
-            bet_amount = 1000000000000 # Just a large number for logging, INF doesn't change
-        else:
-            bet_amount = user['balance']
+            return await ctx.reply(embed=create_embed("❌ Lỗi", "Bạn nhiều tiền đến nổi hệ thống bị ngu, deck đếm được số tiền này. Vui lòng thử lại với số tiền hợp lý!", 0xff0000))
+        bet_amount = user['balance']
     else:
         try:
             bet_amount = int(amount.replace(",", "").replace(".", ""))
@@ -872,15 +871,17 @@ async def blackjack(ctx, amount: str):
         user = db.create_user(str(ctx.author.id), ctx.author.name)
 
     if amount.lower() == "all":
-        bet = 1000000000000 if user['balance'] == "inf" else user['balance']
+        if user['balance'] == "inf":
+            return await ctx.reply(embed=create_embed("❌ Lỗi", "Bạn nhiều tiền đến nổi hệ thống bị ngu, deck đếm được số tiền này. Vui lòng thử lại với số tiền hợp lý!", 0xff0000))
+        bet = user['balance']
     else:
         try:
             bet = int(amount.replace(",", "").replace(".", ""))
         except ValueError:
             return await ctx.reply("❌ Số tiền không hợp lệ.")
 
-    if (bet <= 0 or user['balance'] < bet) and user['balance'] != "inf":
-        return await ctx.reply(f"❌ Bạn không đủ tiền! Số dư: **{user['balance']:,}** cash")
+    if (bet <= 0 or (user['balance'] != "inf" and user['balance'] < bet)):
+        return await ctx.reply(f"❌ Bạn không đủ tiền! Số dư: **{format_balance(user['balance'])}** cash")
 
     if user['balance'] != "inf":
         db.update_user(str(ctx.author.id), balance=user['balance'] - bet)
@@ -933,15 +934,17 @@ async def coinflip(ctx, choice: str, amount: str):
         return await ctx.reply("❌ Lựa chọn không hợp lệ! Sử dụng `1` cho mặt trước hoặc `2` cho mặt sau.")
 
     if amount.lower() == "all":
-        bet = 1000000000000 if user['balance'] == "inf" else user['balance']
+        if user['balance'] == "inf":
+            return await ctx.reply(embed=create_embed("❌ Lỗi", "Bạn nhiều tiền đến nổi hệ thống bị ngu, deck đếm được số tiền này. Vui lòng thử lại với số tiền hợp lý!", 0xff0000))
+        bet = user['balance']
     else:
         try:
             bet = int(amount.replace(",", "").replace(".", ""))
         except ValueError:
             return await ctx.reply("❌ Số tiền không hợp lệ.")
 
-    if (bet <= 0 or user['balance'] < bet) and user['balance'] != "inf":
-        return await ctx.reply(f"❌ Bạn không đủ tiền! Số dư: **{user['balance']:,}** cash")
+    if (bet <= 0 or (user['balance'] != "inf" and user['balance'] < bet)):
+        return await ctx.reply(f"❌ Bạn không đủ tiền! Số dư: **{format_balance(user['balance'])}** cash")
 
     if user['balance'] != "inf":
         db.update_user(str(ctx.author.id), balance=user['balance'] - bet)
@@ -974,15 +977,17 @@ async def slots(ctx, amount: str):
         user = db.create_user(str(ctx.author.id), ctx.author.name)
 
     if amount.lower() == "all":
-        bet = 1000000000000 if user['balance'] == "inf" else user['balance']
+        if user['balance'] == "inf":
+            return await ctx.reply(embed=create_embed("❌ Lỗi", "Bạn nhiều tiền đến nổi hệ thống bị ngu, deck đếm được số tiền này. Vui lòng thử lại với số tiền hợp lý!", 0xff0000))
+        bet = user['balance']
     else:
         try:
             bet = int(amount.replace(",", "").replace(".", ""))
         except ValueError:
             return await ctx.reply("❌ Số tiền không hợp lệ.")
 
-    if (bet <= 0 or user['balance'] < bet) and user['balance'] != "inf":
-        return await ctx.reply(f"❌ Bạn không đủ tiền! Số dư: **{user['balance']:,}** cash")
+    if (bet <= 0 or (user['balance'] != "inf" and user['balance'] < bet)):
+        return await ctx.reply(f"❌ Bạn không đủ tiền! Số dư: **{format_balance(user['balance'])}** cash")
 
     if user['balance'] != "inf":
         db.update_user(str(ctx.author.id), balance=user['balance'] - bet)

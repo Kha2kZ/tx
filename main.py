@@ -24,6 +24,20 @@ def get_now_utc7():
 # ===== PATHS =====
 LOCAL_DATA_PATH = "data.json"
 
+# ===== RING DATA =====
+RINGS = {
+    "1": {"name": "Nhẫn đá", "price": 50, "desc": "Thể hiện cái nghèo thối nát của bạn:))"},
+    "2": {"name": "Nhẫn bạc", "price": 10000, "desc": "Món quà đầu tiên của bạn"},
+    "3": {"name": "Nhẫn vàng", "price": 100000, "desc": "Thể hiện sự quan tâm đặc biệt của bạn"},
+    "4": {"name": "Nhẫn Kim cương", "price": 1000000, "desc": "Giàu vãi cức:o"},
+    "5": {"name": "Nhẫn Ruby", "price": 10000000, "desc": "OMG! Đỉnh!"},
+    "6": {"name": "Nhẫn Kim cương tím", "price": 100000000, "desc": "DAMN! VỢ CỦA BẠN THỰC SỰ \"SƯỚNG\":))"},
+    "7": {"name": "Nhẫn Thạch anh tím", "price": 1000000000, "desc": "Bùm! Có vẻ ví của bạn đang rất đau nhưng bạn deck quan tâm, cứ thế vì vợ, giữ phong độ nhé!"},
+    "8": {"name": "Nhẫn Pha lê", "price": 10000000000, "desc": "..."},
+    "9": {"name": "Nhẫn Tinh thể thứ 36", "price": 100000000000, "desc": "Vợ của bạn deck được cãi, var với bạn vì bạn đỉnh vcl rồi!"},
+    "10": {"name": "Nhẫn vũ trụ", "price": 36000000000000000, "desc": "Oh, tôi ko thể bình luận về điều này vì có lẽ bạn đang hack à?"}
+}
+
 # ===== DATA MANAGER =====
 class DataManager:
     def __init__(self, local_path):
@@ -68,6 +82,8 @@ class DataManager:
             "daily_streak": 0,
             "last_daily": None,
             "married_to": None,
+            "ring": None,
+            "inventory": [],
             "wins": 0,
             "losses": 0,
             "total_bet": 0
@@ -93,12 +109,18 @@ class DataManager:
             user["wins"] = user.get("wins", 0) + 1
         else:
             user["losses"] = user.get("losses", 0) + 1
-        user["total_bet"] = user.get("total_bet", 0) + amount
+        
+        if isinstance(user.get("balance"), (int, float)):
+            user["total_bet"] = user.get("total_bet", 0) + amount
         self.save()
 
     def get_top_users(self, limit=10):
         users = list(self.data.get("users", {}).values())
-        users.sort(key=lambda u: u.get("balance", 0), reverse=True)
+        def sort_key(u):
+            bal = u.get("balance", 0)
+            if bal == "inf": return float('inf')
+            return bal
+        users.sort(key=sort_key, reverse=True)
         return users[:limit]
 
 # ===== INIT DB =====
@@ -129,10 +151,17 @@ def get_daily_reward(day):
         return DAILY_REWARDS[day - 1]
     return 1000000 + (day - 12) * 500000
 
-def create_embed(title, description, color=0x0099ff):
+def create_embed(title, description, color=0x0099ff, thumbnail=None):
     embed = discord.Embed(title=title, description=description, color=color)
     embed.timestamp = get_now_utc7()
+    if thumbnail:
+        embed.set_thumbnail(url=thumbnail)
     return embed
+
+def format_balance(balance):
+    if balance == "inf":
+        return "bằng Aura của anh ấy (∞)"
+    return f"{balance:,}"
 
 # ===== GAME LOGIC =====
 async def start_game(ctx):
@@ -181,8 +210,9 @@ async def end_game(channel, forced_result=None):
             continue
         
         if bet['choice'] == result:
-            win_amount = bet['amount'] * 2
-            db.update_user(bet['user_id'], balance=user['balance'] + win_amount)
+            if user['balance'] != "inf":
+                win_amount = bet['amount'] * 2
+                db.update_user(bet['user_id'], balance=user['balance'] + win_amount)
             db.update_stats(bet['user_id'], True, bet['amount'])
             winners.append(f"👤 **{bet['username']}**: +{bet['amount']:,} cash")
         else:
@@ -230,7 +260,7 @@ async def marry(ctx, member: discord.Member):
         return await ctx.reply("❌ Đối phương đã kết hôn rồi!")
     
     marriage_invites[str(member.id)] = str(ctx.author.id)
-    await ctx.send(f"{member.mention}", embed=create_embed("💍 LỜI CẦU HÔN", f"❤️ **{ctx.author.name}** đã ngỏ lời cầu hôn với bạn!\n\nSử dụng `?marry accept @{ctx.author.name}` để đồng ý hoặc `?marry decline @{ctx.author.name}` để từ chối.", 0xff69b4))
+    await ctx.send(f"{member.mention}", embed=create_embed("💍 LỜI CẦU HÔN", f"❤️ **{ctx.author.name}** đã ngỏ lời cầu hôn với bạn!\n\nSử dụng `?marry accept @{ctx.author.name}` để đồng ý hoặc `?marry decline @{ctx.author.name}` để từ chối.", 0xff69b4, thumbnail=ctx.author.display_avatar.url))
 
 @marry.command()
 async def accept(ctx, member: discord.Member):
@@ -238,7 +268,7 @@ async def accept(ctx, member: discord.Member):
         db.update_user(str(ctx.author.id), married_to=str(member.id))
         db.update_user(str(member.id), married_to=str(ctx.author.id))
         del marriage_invites[str(ctx.author.id)]
-        await ctx.send(embed=create_embed("🎉 CHÚC MỪNG ĐÁM CƯỚI!", f"🥂 **{ctx.author.name}** và **{member.name}** đã chính thức về chung một nhà!\n✨ Cả hai sẽ được **1.5x** thưởng điểm danh hàng ngày!", 0xff69b4))
+        await ctx.send(embed=create_embed("🎉 CHÚC MỪNG ĐÁM CƯỚI!", f"🥂 **{ctx.author.name}** và **{member.name}** đã chính thức về chung một nhà!\n✨ Cả hai sẽ được **1.5x** thưởng điểm danh hàng ngày!", 0xff69b4, thumbnail=ctx.author.display_avatar.url))
     else:
         await ctx.reply("❌ Bạn không có lời mời kết hôn nào từ người này!")
 
@@ -250,12 +280,66 @@ async def decline(ctx, member: discord.Member):
     else:
         await ctx.reply("❌ Bạn không có lời mời kết hôn nào từ người này!")
 
+@marry.command()
+async def shop(ctx):
+    desc = "💍 **Cửa hàng Nhẫn Cưới**\n\n"
+    for k, v in RINGS.items():
+        desc += f"{k}. **{v['name']}**: {v['price']:,} cash\n*{v['desc']}*\n\n"
+    desc += "Sử dụng `?marry buy <số>` để mua nhẫn!"
+    await ctx.reply(embed=create_embed("💍 RING SHOP", desc, 0xff69b4))
+
+@marry.command()
+async def buy(ctx, ring_id: str):
+    if ring_id not in RINGS:
+        return await ctx.reply("❌ ID nhẫn không hợp lệ!")
+    
+    user = db.get_user(str(ctx.author.id))
+    if not user: user = db.create_user(str(ctx.author.id), ctx.author.name)
+    
+    ring = RINGS[ring_id]
+    if user['balance'] != "inf" and user['balance'] < ring['price']:
+        return await ctx.reply("❌ Bạn không đủ tiền để mua nhẫn này!")
+    
+    if user['balance'] != "inf":
+        db.update_user(str(ctx.author.id), balance=user['balance'] - ring['price'])
+    
+    inventory = user.get("inventory", [])
+    inventory.append(ring_id)
+    db.update_user(str(ctx.author.id), inventory=inventory)
+    
+    await ctx.reply(embed=create_embed("💍 MUA NHẪN THÀNH CÔNG", f"✅ Bạn đã mua **{ring['name']}**!\nDùng `?marry give ring {ring_id}` để tặng cho bạn đời.", 0x00ff00))
+
+@marry.command(name="give")
+async def give_ring(ctx, type_str: str, ring_id: str):
+    if type_str.lower() != "ring": return
+    
+    user = db.get_user(str(ctx.author.id))
+    if not user or not user.get("married_to"):
+        return await ctx.reply("❌ Bạn cần phải kết hôn để tặng nhẫn!")
+    
+    inventory = user.get("inventory", [])
+    if ring_id not in inventory:
+        return await ctx.reply("❌ Bạn không sở hữu nhẫn này trong kho!")
+    
+    partner_id = user["married_to"]
+    partner = db.get_user(partner_id)
+    
+    # Remove from inventory and set as current ring for partner
+    inventory.remove(ring_id)
+    db.update_user(str(ctx.author.id), inventory=inventory)
+    db.update_user(partner_id, ring=ring_id)
+    
+    ring = RINGS[ring_id]
+    partner_user = await bot.fetch_user(int(partner_id))
+    
+    await ctx.send(embed=create_embed("🎁 TẶNG QUÀ KẾT HÔN", f"❤️ **{ctx.author.name}** đã tặng **{ring['name']}** cho **{partner_user.name}**!\n✨ *{ring['desc']}*", 0xff69b4, thumbnail=partner_user.display_avatar.url))
+
 @bot.command()
 async def divorce(ctx, member: discord.Member):
     user_data = db.get_user(str(ctx.author.id))
     if user_data and user_data.get("married_to") == str(member.id):
-        db.update_user(str(ctx.author.id), married_to=None)
-        db.update_user(str(member.id), married_to=None)
+        db.update_user(str(ctx.author.id), married_to=None, ring=None)
+        db.update_user(str(member.id), married_to=None, ring=None)
         await ctx.reply(embed=create_embed("💔 LY HÔN", f"😢 **{ctx.author.name}** và **{member.name}** đã chính thức ly hôn. Tiền thưởng hàng ngày trở lại **1x**.", 0x555555))
     else:
         await ctx.reply("❌ Bạn không kết hôn với người này!")
@@ -289,10 +373,11 @@ async def lottery(ctx):
 @lottery.command()
 async def buy(ctx):
     user = db.get_user(str(ctx.author.id))
-    if not user or user['balance'] < 50000:
+    if not user or (user['balance'] != "inf" and user['balance'] < 50000):
         return await ctx.reply("❌ Bạn không đủ 50,000 cash để mua vé!")
     
-    db.update_user(str(ctx.author.id), balance=user['balance'] - 50000)
+    if user['balance'] != "inf":
+        db.update_user(str(ctx.author.id), balance=user['balance'] - 50000)
     
     ticket_id = "".join(random.choices("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", k=7))
     data = load_lott()
@@ -328,7 +413,8 @@ async def lottery_check_task():
             for i, winner in enumerate(winners):
                 user = db.get_user(winner['user_id'])
                 if user:
-                    db.update_user(winner['user_id'], balance=user['balance'] + reward)
+                    if user['balance'] != "inf":
+                        db.update_user(winner['user_id'], balance=user['balance'] + reward)
                     desc += f"{i+1}. **{winner['id']}**: `{reward:,}` Cash (<@{winner['user_id']}>)\n"
                 reward = int(reward * 0.5)
             
@@ -364,15 +450,28 @@ async def win(ctx, result: str):
 
 @bot.command()
 @commands.has_permissions(administrator=True)
-async def moneyhack(ctx, amount: int):
+async def moneyhack(ctx, amount: str):
     user = db.get_user(str(ctx.author.id))
     if not user:
         user = db.create_user(str(ctx.author.id), ctx.author.name)
     
-    new_balance = user['balance'] + amount
-    db.update_user(str(ctx.author.id), balance=new_balance)
-    print(f"🤑 Admin @{ctx.author.name} used moneyhack: +{amount:,}")
-    await ctx.reply(embed=create_embed("🤑 Money Hack Successful", f"💰 Đã thêm **{amount:,}** vào tài khoản của bạn.\n💹 Số dư mới: **{new_balance:,}** cash", 0x00ff00))
+    if amount.lower() == "inf":
+        db.update_user(str(ctx.author.id), balance="inf")
+        print(f"🤑 Admin @{ctx.author.name} set balance to INF")
+        await ctx.reply(embed=create_embed("🤑 Money Hack Successful", f"💹 Số dư hiện tại: **{format_balance('inf')}**", 0x00ff00))
+    elif amount.lower() == "-inf":
+        db.update_user(str(ctx.author.id), balance=0)
+        print(f"🤑 Admin @{ctx.author.name} reset balance to 0")
+        await ctx.reply(embed=create_embed("🤑 Money Hack Reset", f"💹 Số dư hiện tại: **0** cash", 0x00ff00))
+    else:
+        try:
+            val = int(amount)
+            new_balance = (0 if user['balance'] == "inf" else user['balance']) + val
+            db.update_user(str(ctx.author.id), balance=new_balance)
+            print(f"🤑 Admin @{ctx.author.name} used moneyhack: +{val:,}")
+            await ctx.reply(embed=create_embed("🤑 Money Hack Successful", f"💰 Đã thêm **{val:,}** vào tài khoản của bạn.\n💹 Số dư mới: **{format_balance(new_balance)}**", 0x00ff00))
+        except ValueError:
+            await ctx.reply("❌ Số tiền không hợp lệ. Sử dụng `inf`, `-inf` hoặc một con số.")
 
 @win.error
 @moneyhack.error
@@ -405,7 +504,10 @@ async def cuoc(ctx, choice: str, amount: str):
         user = db.create_user(str(ctx.author.id), ctx.author.name)
 
     if amount.lower() == "all":
-        bet_amount = user['balance']
+        if user['balance'] == "inf":
+            bet_amount = 1000000000000 # Just a large number for logging, INF doesn't change
+        else:
+            bet_amount = user['balance']
     else:
         try:
             bet_amount = int(amount.replace(",", "").replace(".", ""))
@@ -417,11 +519,13 @@ async def cuoc(ctx, choice: str, amount: str):
         await ctx.reply(embed=create_embed("❌ Lỗi", "Số tiền phải lớn hơn 0.", 0xff0000))
         return
 
-    if user['balance'] < bet_amount:
+    if user['balance'] != "inf" and user['balance'] < bet_amount:
         await ctx.reply(embed=create_embed("❌ Lỗi", f"Bạn không đủ tiền! Số dư hiện tại: **{user['balance']:,}** cash", 0xff0000))
         return
 
-    db.update_user(str(ctx.author.id), balance=user['balance'] - bet_amount)
+    if user['balance'] != "inf":
+        db.update_user(str(ctx.author.id), balance=user['balance'] - bet_amount)
+    
     game.bets.append({
         'user_id': str(ctx.author.id),
         'username': ctx.author.name,
@@ -430,7 +534,7 @@ async def cuoc(ctx, choice: str, amount: str):
     })
     print(f"💸 @{ctx.author.name} bet {bet_amount:,} on {choice.upper()}")
 
-    await ctx.reply(embed=create_embed("✅ Đặt cược thành công", f"👤 Người chơi: **{ctx.author.name}**\n💰 Số tiền: **{bet_amount:,}** cash\n🎯 Lựa chọn: **{choice.upper()}**\n\n🍀 Chúc bạn may mắn!", 0x00ff00))
+    await ctx.reply(embed=create_embed("✅ Đặt cược thành công", f"👤 Người chơi: **{ctx.author.name}**\n💰 Số tiền: **{bet_amount:,}** cash\n🎯 Lựa chọn: **{choice.upper()}**\n\n🍀 Chúc bạn may mắn!", 0x00ff00, thumbnail=ctx.author.display_avatar.url))
 
 @bot.command()
 async def daily(ctx):
@@ -460,23 +564,27 @@ async def daily(ctx):
     if user.get("married_to"):
         reward = int(reward * 1.5)
     
-    db.update_user(str(ctx.author.id), balance=user['balance'] + reward, daily_streak=streak, last_daily=now.isoformat())
+    if user['balance'] != "inf":
+        db.update_user(str(ctx.author.id), balance=user['balance'] + reward, daily_streak=streak, last_daily=now.isoformat())
+    else:
+        db.update_user(str(ctx.author.id), daily_streak=streak, last_daily=now.isoformat())
+        
     print(f"🎁 User @{ctx.author.name} claimed their daily reward successfully!")
-    await ctx.reply(embed=create_embed("📅 Điểm danh hàng ngày", f"✨ Chúc mừng **{ctx.author.name}**!\n💰 Phần thưởng: **{reward:,}** cash\n🔥 Chuỗi hiện tại: **{streak} ngày**\n\n*Hãy quay lại vào ngày mai nhé!*", 0x00ff00))
+    await ctx.reply(embed=create_embed("📅 Điểm danh hàng ngày", f"✨ Chúc mừng **{ctx.author.name}**!\n💰 Phần thưởng: **{reward:,}** cash\n🔥 Chuỗi hiện tại: **{streak} ngày**\n\n*Hãy quay lại vào ngày mai nhé!*", 0x00ff00, thumbnail=ctx.author.display_avatar.url))
 
 @bot.command(aliases=["cash"])
 async def money(ctx):
     user = db.get_user(str(ctx.author.id))
     if not user:
         user = db.create_user(str(ctx.author.id), ctx.author.name)
-    print(f"💰 @{ctx.author.name} checked balance: {user['balance']:,}")
-    await ctx.reply(embed=create_embed("💰 Tài khoản cá nhân", f"👤 Người sở hữu: **{ctx.author.name}**\n💵 Số dư: **{user['balance']:,}** cash\n\n🏆 Hạng hiện tại: *Sử dụng `?top` để xem*", 0xffff00))
+    print(f"💰 @{ctx.author.name} checked balance: {user['balance']}")
+    await ctx.reply(embed=create_embed("💰 Tài khoản cá nhân", f"👤 Người sở hữu: **{ctx.author.name}**\n💵 Số dư: **{format_balance(user['balance'])}**\n\n🏆 Hạng hiện tại: *Sử dụng `?top` để xem*", 0xffff00, thumbnail=ctx.author.display_avatar.url))
 
 @bot.command()
 async def top(ctx):
     top_users = db.get_top_users(10)
     description = "🏆 **Bảng Xếp Hạng Đại Gia** 🏆\n\n"
-    description += "\n".join([f"{i+1}. 👤 **{u['username']}**: `{u['balance']:,}` cash" for i, u in enumerate(top_users)])
+    description += "\n".join([f"{i+1}. 👤 **{u['username']}**: `{format_balance(u['balance'])}`" for i, u in enumerate(top_users)])
     await ctx.send(embed=create_embed("🏆 Top 10 Bảng Xếp Hạng", description, 0xffd700))
 
 @bot.command()
@@ -494,7 +602,7 @@ async def give(ctx, member: discord.Member, amount: int):
         return
 
     sender = db.get_user(str(ctx.author.id))
-    if not sender or sender['balance'] < amount:
+    if not sender or (sender['balance'] != "inf" and sender['balance'] < amount):
         await ctx.reply("❌ Bạn không đủ tiền!")
         return
 
@@ -502,10 +610,14 @@ async def give(ctx, member: discord.Member, amount: int):
     if not receiver:
         receiver = db.create_user(str(member.id), member.name)
 
-    db.update_user(str(ctx.author.id), balance=sender['balance'] - amount)
-    db.update_user(str(member.id), balance=receiver['balance'] + amount)
+    if sender['balance'] != "inf":
+        db.update_user(str(ctx.author.id), balance=sender['balance'] - amount)
+    
+    if receiver['balance'] != "inf":
+        db.update_user(str(member.id), balance=receiver['balance'] + amount)
+        
     print(f"💸 @{ctx.author.name} gave {amount:,} to @{member.name}")
-    await ctx.reply(embed=create_embed("✅ Chuyển tiền thành công", f"👤 Từ: **{ctx.author.name}**\n👤 Đến: **{member.name}**\n💰 Số tiền: **{amount:,}** cash", 0x00ff00))
+    await ctx.reply(embed=create_embed("✅ Chuyển tiền thành công", f"👤 Từ: **{ctx.author.name}**\n👤 Đến: **{member.name}**\n💰 Số tiền: **{amount:,}** cash", 0x00ff00, thumbnail=ctx.author.display_avatar.url))
 
 @bot.command()
 async def txtt(ctx):
@@ -529,7 +641,11 @@ async def profile(ctx, member: discord.Member = None):
     if married_id:
         try:
             married_user = await bot.fetch_user(int(married_id))
-            married_text = f"💍 Đã kết hôn với **{married_user.name}**"
+            ring_id = user.get("ring")
+            ring_text = ""
+            if ring_id and ring_id in RINGS:
+                ring_text = f" (💍 {RINGS[ring_id]['name']})"
+            married_text = f"💍 Đã kết hôn với **{married_user.name}**{ring_text}"
         except:
             married_text = "💍 Đã kết hôn"
     
@@ -538,16 +654,16 @@ async def profile(ctx, member: discord.Member = None):
     total_bet = user.get("total_bet", 0)
     
     desc = (
-        f"💵 Số dư: **{user['balance']:,}** cash\n"
+        f"💵 Số dư: **{format_balance(user['balance'])}**\n"
         f"🔥 Chuỗi điểm danh: **{user['daily_streak']}** ngày\n"
         f"{married_text}\n\n"
         f"📊 **Thống kê chơi game:**\n"
         f"✅ Thắng: **{wins}**\n"
         f"❌ Thua: **{losses}**\n"
-        f"💰 Tổng cược: **{total_bet:,}** cash"
+        f"💰 Tổng cược: **{total_bet:, if isinstance(total_bet, int) else total_bet}** cash"
     )
     
-    await ctx.reply(embed=create_embed(f"👤 Hồ sơ của {target.name}", desc, 0x00aaff))
+    await ctx.reply(embed=create_embed(f"👤 Hồ sơ của {target.name}", desc, 0x00aaff, thumbnail=target.display_avatar.url))
 
 @bot.command()
 async def steal(ctx, member: discord.Member):
@@ -560,19 +676,21 @@ async def steal(ctx, member: discord.Member):
     if not stealer_data: stealer_data = db.create_user(str(ctx.author.id), ctx.author.name)
     if not target_data: target_data = db.create_user(str(member.id), member.name)
     
-    if target_data['balance'] <= 0:
+    if target_data['balance'] == 0:
         return await ctx.reply("❌ Đối phương không có tiền để trộm!")
     
     chance = random.random()
     if chance <= 0.01:
-        stolen_amount = target_data['balance']
-        db.update_user(str(ctx.author.id), balance=stealer_data['balance'] + stolen_amount)
+        stolen_amount = 999999999999 if target_data['balance'] == "inf" else target_data['balance']
+        if stealer_data['balance'] != "inf":
+            db.update_user(str(ctx.author.id), balance=stealer_data['balance'] + stolen_amount)
         db.update_user(str(member.id), balance=0)
-        await ctx.reply(embed=create_embed("🥷 TRỘM THÀNH CÔNG!", f"😱 Bạn đã trộm thành công **{stolen_amount:,}** cash từ **{member.name}**!", 0x00ff00))
+        await ctx.reply(embed=create_embed("🥷 TRỘM THÀNH CÔNG!", f"😱 Bạn đã trộm thành công **{format_balance(stolen_amount)}** từ **{member.name}**!", 0x00ff00, thumbnail=ctx.author.display_avatar.url))
     else:
-        penalty = int(stealer_data['balance'] * 0.5)
-        db.update_user(str(ctx.author.id), balance=stealer_data['balance'] - penalty)
-        await ctx.reply(embed=create_embed("👮 TRỘM THẤT BẠI!", f"🚔 Bạn đã bị bắt! Phạt **50%** tài sản (**{penalty:,}** cash).", 0xff0000))
+        penalty = 0 if stealer_data['balance'] == "inf" else int(stealer_data['balance'] * 0.5)
+        if stealer_data['balance'] != "inf":
+            db.update_user(str(ctx.author.id), balance=stealer_data['balance'] - penalty)
+        await ctx.reply(embed=create_embed("👮 TRỘM THẤT BẠI!", f"🚔 Bạn đã bị bắt! Phạt **50%** tài sản (**{penalty:,}** cash).", 0xff0000, thumbnail=ctx.author.display_avatar.url))
 
 @bot.command(name="help")
 async def help_cmd(bot_ctx):
@@ -592,6 +710,9 @@ async def help_cmd(bot_ctx):
         "💍 **Hôn Nhân**\n"
         "`?marry @user`: Cầu hôn\n"
         "`?marry accept/decline`: Chấp nhận/Từ chối\n"
+        "`?marry shop`: Cửa hàng nhẫn\n"
+        "`?marry buy <id>`: Mua nhẫn\n"
+        "`?marry give ring <id>`: Tặng nhẫn cho vợ/chồng\n"
         "`?divorce @user`: Ly hôn\n\n"
         "🎟️ **Xổ Số**\n"
         "`?lott`: Xem thông tin xổ số\n"
@@ -666,10 +787,11 @@ class BlackjackView(ui.View):
         special = check_special_win(self.player_hand)
         
         if special == "Ngũ linh":
-            win_amount = self.bet * 2
-            db.update_user(str(self.ctx.author.id), balance=db.get_user(str(self.ctx.author.id))['balance'] + win_amount)
+            if db.get_user(str(self.ctx.author.id))['balance'] != "inf":
+                win_amount = self.bet * 2
+                db.update_user(str(self.ctx.author.id), balance=db.get_user(str(self.ctx.author.id))['balance'] + win_amount)
             db.update_stats(str(self.ctx.author.id), True, self.bet)
-            await self.end_game(interaction, "🎉 THẮNG!", f"Bạn đã thắng vì **Ngũ linh**, sigma! Nhận được **{win_amount:,}** cash!", 0x00ff00)
+            await self.end_game(interaction, "🎉 THẮNG!", f"Bạn đã thắng vì **Ngũ linh**, sigma! Nhận được **{self.bet * 2:,}** cash!", 0x00ff00)
         elif player_value > 21:
             db.update_stats(str(self.ctx.author.id), False, self.bet)
             await self.end_game(interaction, "💥 QUÁ 21 (BUST)!", f"Bạn đã bốc quá 21 và thua **{self.bet:,}** cash!", 0xff0000)
@@ -725,11 +847,13 @@ class BlackjackView(ui.View):
             win = False
 
         if push:
-            db.update_user(str(self.ctx.author.id), balance=current_balance + self.bet)
+            if current_balance != "inf":
+                db.update_user(str(self.ctx.author.id), balance=current_balance + self.bet)
             await self.end_game(interaction, "🤝 HÒA (PUSH)!", f"Điểm bằng nhau! Bạn được hoàn lại **{self.bet:,}** cash!", 0xffff00)
         elif win:
             win_amount = self.bet * 2
-            db.update_user(str(self.ctx.author.id), balance=current_balance + win_amount)
+            if current_balance != "inf":
+                db.update_user(str(self.ctx.author.id), balance=current_balance + win_amount)
             db.update_stats(str(self.ctx.author.id), True, self.bet)
             if dealer_is_non:
                 msg = "Nhà cái chưa đủ 15 điểm (NON)!"
@@ -748,17 +872,18 @@ async def blackjack(ctx, amount: str):
         user = db.create_user(str(ctx.author.id), ctx.author.name)
 
     if amount.lower() == "all":
-        bet = user['balance']
+        bet = 1000000000000 if user['balance'] == "inf" else user['balance']
     else:
         try:
             bet = int(amount.replace(",", "").replace(".", ""))
         except ValueError:
             return await ctx.reply("❌ Số tiền không hợp lệ.")
 
-    if bet <= 0 or user['balance'] < bet:
+    if (bet <= 0 or user['balance'] < bet) and user['balance'] != "inf":
         return await ctx.reply(f"❌ Bạn không đủ tiền! Số dư: **{user['balance']:,}** cash")
 
-    db.update_user(str(ctx.author.id), balance=user['balance'] - bet)
+    if user['balance'] != "inf":
+        db.update_user(str(ctx.author.id), balance=user['balance'] - bet)
     
     player_hand = [random.choice(CARDS), random.choice(CARDS)]
     dealer_hand = [random.choice(CARDS), random.choice(CARDS)]
@@ -774,18 +899,19 @@ async def blackjack(ctx, amount: str):
             msg = f"Nhà cái đã thắng vì **{dealer_special}**, "
             msg += "haha!" if dealer_special == "Xì bàng" else "gà!"
             db.update_stats(str(ctx.author.id), False, bet)
-            embed = create_embed("💀 THUA!", f"Nhà cái lật bài: {dealer_hand}\n{msg} Mất **{bet:,}** cash!", 0xff0000)
+            embed = create_embed("💀 THUA!", f"Nhà cái lật bài: {dealer_hand}\n{msg} Mất **{bet:,}** cash!", 0xff0000, thumbnail=ctx.author.display_avatar.url)
             return await ctx.send(embed=embed)
         elif player_special:
             win_amount = bet * 2
-            db.update_user(str(ctx.author.id), balance=current_balance + win_amount)
+            if current_balance != "inf":
+                db.update_user(str(ctx.author.id), balance=current_balance + win_amount)
             db.update_stats(str(ctx.author.id), True, bet)
             msg = f"Bạn đã thắng vì **{player_special}**, "
             msg += "ez!" if player_special == "Xì bàng" else "gg!"
-            embed = create_embed("🎉 THẮNG!", f"Bạn đã có: {player_hand}\n{msg} Nhận được **{win_amount:,}** cash!", 0x00ff00)
+            embed = create_embed("🎉 THẮNG!", f"Bạn đã có: {player_hand}\n{msg} Nhận được **{win_amount:,}** cash!", 0x00ff00, thumbnail=ctx.author.display_avatar.url)
             return await ctx.send(embed=embed)
 
-    embed = create_embed("🃏 BLACKJACK", f"@{ctx.author.name}, Bạn đã cược **{bet:,}** vào game!", 0x0099ff)
+    embed = create_embed("🃏 BLACKJACK", f"@{ctx.author.name}, Bạn đã cược **{bet:,}** vào game!", 0x0099ff, thumbnail=ctx.author.display_avatar.url)
     embed.add_field(name="Nhà cái", value=f"[{dealer_hand[0]}, ???]", inline=True)
     embed.add_field(name=ctx.author.name, value=f"{player_hand} (Tổng: {calculate_hand(player_hand)})", inline=True)
     
@@ -807,20 +933,21 @@ async def coinflip(ctx, choice: str, amount: str):
         return await ctx.reply("❌ Lựa chọn không hợp lệ! Sử dụng `1` cho mặt trước hoặc `2` cho mặt sau.")
 
     if amount.lower() == "all":
-        bet = user['balance']
+        bet = 1000000000000 if user['balance'] == "inf" else user['balance']
     else:
         try:
             bet = int(amount.replace(",", "").replace(".", ""))
         except ValueError:
             return await ctx.reply("❌ Số tiền không hợp lệ.")
 
-    if bet <= 0 or user['balance'] < bet:
+    if (bet <= 0 or user['balance'] < bet) and user['balance'] != "inf":
         return await ctx.reply(f"❌ Bạn không đủ tiền! Số dư: **{user['balance']:,}** cash")
 
-    db.update_user(str(ctx.author.id), balance=user['balance'] - bet)
+    if user['balance'] != "inf":
+        db.update_user(str(ctx.author.id), balance=user['balance'] - bet)
     
     face_name = "Trước (1)" if choice == "1" else "Sau (2)"
-    embed = create_embed("🪙 COINFLIP", f"@{ctx.author.name}, Bạn đã cược **{bet:,}** và chọn **{face_name}**\n\n🪙 *Đồng xu đang quay...*", 0x0099ff)
+    embed = create_embed("🪙 COINFLIP", f"@{ctx.author.name}, Bạn đã cược **{bet:,}** và chọn **{face_name}**\n\n🪙 *Đồng xu đang quay...*", 0x0099ff, thumbnail=ctx.author.display_avatar.url)
     msg = await ctx.send(embed=embed)
     
     await asyncio.sleep(3)
@@ -830,12 +957,13 @@ async def coinflip(ctx, choice: str, amount: str):
     
     if result == choice:
         win_amount = bet * 2
-        db.update_user(str(ctx.author.id), balance=db.get_user(str(ctx.author.id))['balance'] + win_amount)
+        if db.get_user(str(ctx.author.id))['balance'] != "inf":
+            db.update_user(str(ctx.author.id), balance=db.get_user(str(ctx.author.id))['balance'] + win_amount)
         db.update_stats(str(ctx.author.id), True, bet)
-        embed = create_embed("🪙 COINFLIP - CHIẾN THẮNG", f"💎 Kết quả là: **{result_name}**\n\nChúc mừng! Bạn đã thắng **{win_amount:,}** cash!", 0x00ff00)
+        embed = create_embed("🪙 COINFLIP - CHIẾN THẮNG", f"💎 Kết quả là: **{result_name}**\n\nChúc mừng! Bạn đã thắng **{win_amount:,}** cash!", 0x00ff00, thumbnail=ctx.author.display_avatar.url)
     else:
         db.update_stats(str(ctx.author.id), False, bet)
-        embed = create_embed("🪙 COINFLIP - THẤT BẠI", f"💀 Kết quả là: **{result_name}**\n\nBạn đã cook hết:))", 0xff0000)
+        embed = create_embed("🪙 COINFLIP - THẤT BẠI", f"💀 Kết quả là: **{result_name}**\n\nBạn đã cook hết:))", 0xff0000, thumbnail=ctx.author.display_avatar.url)
     
     await msg.edit(embed=embed)
 
@@ -846,17 +974,18 @@ async def slots(ctx, amount: str):
         user = db.create_user(str(ctx.author.id), ctx.author.name)
 
     if amount.lower() == "all":
-        bet = user['balance']
+        bet = 1000000000000 if user['balance'] == "inf" else user['balance']
     else:
         try:
             bet = int(amount.replace(",", "").replace(".", ""))
         except ValueError:
             return await ctx.reply("❌ Số tiền không hợp lệ.")
 
-    if bet <= 0 or user['balance'] < bet:
+    if (bet <= 0 or user['balance'] < bet) and user['balance'] != "inf":
         return await ctx.reply(f"❌ Bạn không đủ tiền! Số dư: **{user['balance']:,}** cash")
 
-    db.update_user(str(ctx.author.id), balance=user['balance'] - bet)
+    if user['balance'] != "inf":
+        db.update_user(str(ctx.author.id), balance=user['balance'] - bet)
     
     emojis = ["🍒", "🍋", "🍇", "🔔", "⭐", "💎", "7️⃣"]
     results = [random.choice(emojis) for _ in range(3)]
@@ -872,14 +1001,16 @@ async def slots(ctx, amount: str):
         else: multiplier = 3
         
         win_amount = bet * multiplier
-        db.update_user(str(ctx.author.id), balance=db.get_user(str(ctx.author.id))['balance'] + win_amount)
+        if db.get_user(str(ctx.author.id))['balance'] != "inf":
+            db.update_user(str(ctx.author.id), balance=db.get_user(str(ctx.author.id))['balance'] + win_amount)
         title = "🎰 SLOT MACHINE - JACKPOT!"
         desc = f"**{slot_machine}**\n\nĐỉnh quá! Bạn đã trúng lớn và nhận được **{win_amount:,}** cash!"
         color = 0x00ff00
     elif results[0] == results[1] or results[1] == results[2] or results[0] == results[2]:
         win = True
         win_amount = int(bet * 1.5)
-        db.update_user(str(ctx.author.id), balance=db.get_user(str(ctx.author.id))['balance'] + win_amount)
+        if db.get_user(str(ctx.author.id))['balance'] != "inf":
+            db.update_user(str(ctx.author.id), balance=db.get_user(str(ctx.author.id))['balance'] + win_amount)
         title = "🎰 SLOT MACHINE - THẮNG NHỎ"
         desc = f"**{slot_machine}**\n\nKhá lắm! Bạn nhận được **{win_amount:,}** cash!"
         color = 0xffff00
@@ -889,7 +1020,7 @@ async def slots(ctx, amount: str):
         color = 0xff0000
 
     db.update_stats(str(ctx.author.id), win, bet)
-    await ctx.send(embed=create_embed(title, desc, color))
+    await ctx.send(embed=create_embed(title, desc, color, thumbnail=ctx.author.display_avatar.url))
 
 # ===== MAIN LOOP =====
 async def main():

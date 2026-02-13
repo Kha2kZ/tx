@@ -68,9 +68,13 @@ class DataManager:
         try:
             with open(self.local_path, "w", encoding="utf-8") as f:
                 json.dump(self.data, f, ensure_ascii=False, indent=2)
-            print("💾 Saved data.json")
+            print(f"💾 Saved {self.local_path}")
+            # Simulation of Drive Backup (In Replit, we use persistent storage)
+            # backup_path = f"/drive/backups/{os.path.basename(self.local_path)}"
+            # os.makedirs(os.path.dirname(backup_path), exist_ok=True)
+            # shutil.copy(self.local_path, backup_path)
         except Exception as e:
-            print(f"❌ Failed to save data.json: {e}")
+            print(f"❌ Failed to save {self.local_path}: {e}")
 
     def get_user(self, user_id):
         return self.data.get("users", {}).get(user_id)
@@ -780,6 +784,12 @@ class BlackjackView(ui.View):
             if hasattr(child, "disabled"):
                 child.disabled = True
         
+        # Dealer must hit until 17 or special win even if player busted or stood
+        while calculate_hand(self.dealer_hand) < 17:
+            self.dealer_hand.append(get_random_card())
+            if check_special_win(self.dealer_hand):
+                break
+
         embed = create_embed(title, description, color)
         embed.add_field(name="Nhà cái", value=f"{format_hand(self.dealer_hand)} (Tổng: {calculate_hand(self.dealer_hand)})", inline=True)
         embed.add_field(name=self.ctx.author.name, value=f"{format_hand(self.player_hand)} (Tổng: {calculate_hand(self.player_hand)})", inline=True)
@@ -822,7 +832,10 @@ class BlackjackView(ui.View):
         player_value = calculate_hand(self.player_hand)
         player_special = check_special_win(self.player_hand)
         
-        # Dealer balancing
+        # We don't call end_game immediately here, we resolve the dealer first
+        # But end_game now handles dealer logic, so we just calculate final result
+        
+        # Final dealer resolve
         while calculate_hand(self.dealer_hand) < 17:
             self.dealer_hand.append(get_random_card())
             if check_special_win(self.dealer_hand):

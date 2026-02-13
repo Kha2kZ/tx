@@ -22,59 +22,65 @@ def get_now_utc7():
     return datetime.now(timezone.utc).astimezone(UTC7)
 
 # ===== PATHS =====
+# Local paths for development
 LOCAL_DATA_PATH = "data.json"
+DRIVE_DATA_PATH = "/content/drive/MyDrive/TaixiuBot/data.json"
+DRIVE_LOTT_PATH = "/content/drive/MyDrive/TaixiuBot/lott.json"
 
-# ===== RING DATA =====
-RINGS = {
-    "1": {"name": "Nhẫn đá", "price": 50, "desc": "Thể hiện cái nghèo thối nát của bạn:))"},
-    "2": {"name": "Nhẫn bạc", "price": 10000, "desc": "Món quà đầu tiên của bạn"},
-    "3": {"name": "Nhẫn vàng", "price": 100000, "desc": "Thể hiện sự quan tâm đặc biệt của bạn"},
-    "4": {"name": "Nhẫn Kim cương", "price": 1000000, "desc": "Giàu vãi cức:o"},
-    "5": {"name": "Nhẫn Ruby", "price": 10000000, "desc": "OMG! Đỉnh!"},
-    "6": {"name": "Nhẫn Kim cương tím", "price": 100000000, "desc": "DAMN! VỢ CỦA BẠN THỰC SỰ \"SƯỚNG\":))"},
-    "7": {"name": "Nhẫn Thạch anh tím", "price": 1000000000, "desc": "Bùm! Có vẻ ví của bạn đang rất đau nhưng bạn deck quan tâm, cứ thế vì vợ, giữ phong độ nhé!"},
-    "8": {"name": "Nhẫn Pha lê", "price": 10000000000, "desc": "..."},
-    "9": {"name": "Nhẫn Tinh thể thứ 36", "price": 100000000000, "desc": "Vợ của bạn deck được cãi, var với bạn vì bạn đỉnh vcl rồi!"},
-    "10": {"name": "Nhẫn vũ trụ", "price": 36000000000000000, "desc": "Oh, tôi ko thể bình luận về điều này vì có lẽ bạn đang hack à?"}
-}
+# Check if running in Google Colab
+IS_COLAB = os.path.exists("/content")
+
+def get_data_path():
+    if IS_COLAB:
+        os.makedirs("/content/drive/MyDrive/TaixiuBot", exist_ok=True)
+        return DRIVE_DATA_PATH
+    return LOCAL_DATA_PATH
+
+def get_lott_path():
+    if IS_COLAB:
+        os.makedirs("/content/drive/MyDrive/TaixiuBot", exist_ok=True)
+        return DRIVE_LOTT_PATH
+    return "lott.json"
 
 # ===== DATA MANAGER =====
 class DataManager:
-    def __init__(self, local_path):
-        self.local_path = local_path
+    def __init__(self, get_path_func):
+        self.get_path_func = get_path_func
         self.data = {"users": {}}
 
+    @property
+    def local_path(self):
+        return self.get_path_func()
+
     def load(self):
-        if os.path.exists(self.local_path):
+        path = self.local_path
+        if os.path.exists(path):
             try:
-                with open(self.local_path, "r", encoding="utf-8") as f:
+                with open(path, "r", encoding="utf-8") as f:
                     loaded = json.load(f)
 
                 if not isinstance(loaded, dict) or "users" not in loaded:
-                    print("⚠️ data.json sai định dạng → reset lại dữ liệu.")
+                    print(f"⚠️ {os.path.basename(path)} sai định dạng → reset lại dữ liệu.")
                     self.data = {"users": {}}
                     self.save()
                 else:
                     self.data = loaded
-                    print(f"📥 Loaded data.json from {self.local_path}")
+                    print(f"📥 Loaded from {path}")
             except Exception as e:
-                print(f"❌ Failed to load data.json: {e}")
+                print(f"❌ Failed to load {path}: {e}")
                 self.data = {"users": {}}
                 self.save()
         else:
-            print("⚠️ No data.json found. Starting fresh.")
+            print(f"⚠️ No {path} found. Starting fresh.")
 
     def save(self):
+        path = self.local_path
         try:
-            with open(self.local_path, "w", encoding="utf-8") as f:
+            with open(path, "w", encoding="utf-8") as f:
                 json.dump(self.data, f, ensure_ascii=False, indent=2)
-            print(f"💾 Saved {self.local_path}")
-            # Simulation of Drive Backup (In Replit, we use persistent storage)
-            # backup_path = f"/drive/backups/{os.path.basename(self.local_path)}"
-            # os.makedirs(os.path.dirname(backup_path), exist_ok=True)
-            # shutil.copy(self.local_path, backup_path)
+            print(f"💾 Saved to {path}")
         except Exception as e:
-            print(f"❌ Failed to save {self.local_path}: {e}")
+            print(f"❌ Failed to save to {path}: {e}")
 
     def get_user(self, user_id):
         return self.data.get("users", {}).get(user_id)
@@ -128,7 +134,7 @@ class DataManager:
         return users[:limit]
 
 # ===== INIT DB =====
-db = DataManager(LOCAL_DATA_PATH)
+db = DataManager(get_data_path)
 db.load()
 
 # ===== BOT SETUP =====
@@ -349,17 +355,17 @@ async def divorce(ctx, member: discord.Member):
         await ctx.reply("❌ Bạn không kết hôn với người này!")
 
 # ===== LOTTERY SYSTEM =====
-LOTT_FILE = "lott.json"
-
 def load_lott():
-    if os.path.exists(LOTT_FILE):
+    path = get_lott_path()
+    if os.path.exists(path):
         try:
-            with open(LOTT_FILE, "r") as f: return json.load(f)
+            with open(path, "r") as f: return json.load(f)
         except: pass
     return {"tickets": [], "end_time": None}
 
 def save_lott(data):
-    with open(LOTT_FILE, "w") as f: json.dump(data, f, indent=2)
+    path = get_lott_path()
+    with open(path, "w") as f: json.dump(data, f, indent=2)
 
 @bot.group(aliases=["lott"], invoke_without_command=True)
 async def lottery(ctx):

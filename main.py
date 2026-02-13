@@ -729,11 +729,21 @@ CARD_VALUES = {
     '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9, '10': 10,
     'J': 10, 'Q': 10, 'K': 10, 'A': 11
 }
+SUITS = ['♣️', '♦️', '♥️', '♠️']
 CARDS = list(CARD_VALUES.keys())
 
+def get_random_card():
+    card = random.choice(CARDS)
+    suit = random.choice(SUITS)
+    return f"{card}{suit}"
+
+def get_card_value(card_str):
+    val_part = card_str.replace('♣️','').replace('♦️','').replace('♥️','').replace('♠️','')
+    return CARD_VALUES[val_part]
+
 def calculate_hand(hand):
-    value = sum(CARD_VALUES[card] for card in hand)
-    aces = hand.count('A')
+    value = sum(get_card_value(card) for card in hand)
+    aces = sum(1 for card in hand if card.startswith('A'))
     while value > 21 and aces > 0:
         value -= 10
         aces -= 1
@@ -741,15 +751,19 @@ def calculate_hand(hand):
 
 def check_special_win(hand):
     if len(hand) == 2:
-        if hand.count('A') == 2:
+        aces = sum(1 for card in hand if card.startswith('A'))
+        if aces == 2:
             return "Xì bàng"
-        if 'A' in hand:
-            other_card = hand[0] if hand[1] == 'A' else hand[1]
-            if CARD_VALUES[other_card] == 10:
+        if aces == 1:
+            other_card = hand[0] if not hand[0].startswith('A') else hand[1]
+            if get_card_value(other_card) == 10:
                 return "Xì jack"
     if len(hand) == 5 and calculate_hand(hand) <= 21:
         return "Ngũ linh"
     return None
+
+def format_hand(hand):
+    return ", ".join(hand)
 
 class BlackjackView(ui.View):
     def __init__(self, ctx, bet, player_hand, dealer_hand):
@@ -767,8 +781,8 @@ class BlackjackView(ui.View):
                 child.disabled = True
         
         embed = create_embed(title, description, color)
-        embed.add_field(name="Nhà cái", value=f"{self.dealer_hand} (Tổng: {calculate_hand(self.dealer_hand)})", inline=True)
-        embed.add_field(name=self.ctx.author.name, value=f"{self.player_hand} (Tổng: {calculate_hand(self.player_hand)})", inline=True)
+        embed.add_field(name="Nhà cái", value=f"{format_hand(self.dealer_hand)} (Tổng: {calculate_hand(self.dealer_hand)})", inline=True)
+        embed.add_field(name=self.ctx.author.name, value=f"{format_hand(self.player_hand)} (Tổng: {calculate_hand(self.player_hand)})", inline=True)
         
         if interaction.message:
             await interaction.response.edit_message(embed=embed, view=self)
@@ -781,7 +795,7 @@ class BlackjackView(ui.View):
         if len(self.player_hand) >= 5:
             return await interaction.response.send_message("Bạn đã bốc tối đa 5 lá!", ephemeral=True)
 
-        self.player_hand.append(random.choice(CARDS))
+        self.player_hand.append(get_random_card())
         player_value = calculate_hand(self.player_hand)
         special = check_special_win(self.player_hand)
         
@@ -797,7 +811,7 @@ class BlackjackView(ui.View):
         else:
             if interaction.message and interaction.message.embeds:
                 embed = interaction.message.embeds[0]
-                embed.set_field_at(1, name=self.ctx.author.name, value=f"{self.player_hand} (Tổng: {player_value})", inline=True)
+                embed.set_field_at(1, name=self.ctx.author.name, value=f"{format_hand(self.player_hand)} (Tổng: {player_value})", inline=True)
                 await interaction.response.edit_message(embed=embed, view=self)
 
     @ui.button(label="Dằn (Stand)", style=discord.ButtonStyle.red, emoji="✋")
@@ -805,17 +819,12 @@ class BlackjackView(ui.View):
         if interaction.user.id != self.ctx.author.id:
             return await interaction.response.send_message("Đây không phải ván bài của bạn!", ephemeral=True)
         
-        # Stand minimum rule (at least 15)
         player_value = calculate_hand(self.player_hand)
         player_special = check_special_win(self.player_hand)
-        if player_value < 15 and not player_special:
-            db.update_stats(str(self.ctx.author.id), False, self.bet)
-            await self.end_game(interaction, "💀 THUA (NON)!", f"Bạn chưa đủ 15 điểm đã dằn bài và thua **{self.bet:,}** cash!", 0xff0000)
-            return
-
+        
         # Dealer balancing
         while calculate_hand(self.dealer_hand) < 17:
-            self.dealer_hand.append(random.choice(CARDS))
+            self.dealer_hand.append(get_random_card())
             if check_special_win(self.dealer_hand):
                 break
         
@@ -825,17 +834,23 @@ class BlackjackView(ui.View):
         user_data = db.get_user(str(self.ctx.author.id))
         current_balance = user_data['balance'] if user_data else 0
         
+        player_is_non = player_value < 15 and not player_special
+        dealer_is_non = dealer_value < 15 and not dealer_special
+
         # Resolve win/loss
         win = False
         push = False
-        dealer_is_non = dealer_value < 15 and not dealer_special
-
-        if dealer_special and not player_special:
+        
+        if player_is_non and dealer_is_non:
+            push = True
+        elif player_is_non:
+            win = False
+        elif dealer_is_non:
+            win = True
+        elif dealer_special and not player_special:
             win = False
         elif player_special and not dealer_special:
             win = True
-        elif dealer_is_non:
-            win = True # Dealer loses if stand under 15
         elif dealer_value > 21:
             win = True
         elif player_value > dealer_value:
@@ -848,7 +863,8 @@ class BlackjackView(ui.View):
         if push:
             if current_balance != "inf":
                 db.update_user(str(self.ctx.author.id), balance=current_balance + self.bet)
-            await self.end_game(interaction, "🤝 HÒA (PUSH)!", f"Điểm bằng nhau! Bạn được hoàn lại **{self.bet:,}** cash!", 0xffff00)
+            msg = "Cả hai đều chưa đủ 15 điểm (NON)!" if (player_is_non and dealer_is_non) else "Điểm bằng nhau!"
+            await self.end_game(interaction, "🤝 HÒA (PUSH)!", f"{msg} Bạn được hoàn lại **{self.bet:,}** cash!", 0xffff00)
         elif win:
             win_amount = self.bet * 2
             if current_balance != "inf":
@@ -861,7 +877,10 @@ class BlackjackView(ui.View):
             await self.end_game(interaction, "🎉 THẮNG!", f"{msg} Nhận được **{win_amount:,}** cash!", 0x00ff00)
         else:
             db.update_stats(str(self.ctx.author.id), False, self.bet)
-            msg = f"Nhà cái đã thắng vì **{dealer_special}**" if dealer_special else "Điểm của bạn thấp hơn nhà cái!"
+            if player_is_non:
+                msg = "Bạn chưa đủ 15 điểm (NON)!"
+            else:
+                msg = f"Nhà cái đã thắng vì **{dealer_special}**" if dealer_special else "Điểm của bạn thấp hơn nhà cái!"
             await self.end_game(interaction, "💀 THUA!", f"{msg} Mất **{self.bet:,}** cash!", 0xff0000)
 
 @bot.command(aliases=["bj"])
@@ -886,8 +905,8 @@ async def blackjack(ctx, amount: str):
     if user['balance'] != "inf":
         db.update_user(str(ctx.author.id), balance=user['balance'] - bet)
     
-    player_hand = [random.choice(CARDS), random.choice(CARDS)]
-    dealer_hand = [random.choice(CARDS), random.choice(CARDS)]
+    player_hand = [get_random_card(), get_random_card()]
+    dealer_hand = [get_random_card(), get_random_card()]
     
     player_special = check_special_win(player_hand)
     dealer_special = check_special_win(dealer_hand)
@@ -900,7 +919,7 @@ async def blackjack(ctx, amount: str):
             msg = f"Nhà cái đã thắng vì **{dealer_special}**, "
             msg += "haha!" if dealer_special == "Xì bàng" else "gà!"
             db.update_stats(str(ctx.author.id), False, bet)
-            embed = create_embed("💀 THUA!", f"Nhà cái lật bài: {dealer_hand}\n{msg} Mất **{bet:,}** cash!", 0xff0000, thumbnail=ctx.author.display_avatar.url)
+            embed = create_embed("💀 THUA!", f"Nhà cái lật bài: {format_hand(dealer_hand)}\n{msg} Mất **{bet:,}** cash!", 0xff0000, thumbnail=ctx.author.display_avatar.url)
             return await ctx.send(embed=embed)
         elif player_special:
             win_amount = bet * 2
@@ -909,123 +928,36 @@ async def blackjack(ctx, amount: str):
             db.update_stats(str(ctx.author.id), True, bet)
             msg = f"Bạn đã thắng vì **{player_special}**, "
             msg += "ez!" if player_special == "Xì bàng" else "gg!"
-            embed = create_embed("🎉 THẮNG!", f"Bạn đã có: {player_hand}\n{msg} Nhận được **{win_amount:,}** cash!", 0x00ff00, thumbnail=ctx.author.display_avatar.url)
+            embed = create_embed("🎉 THẮNG!", f"Bạn đã có: {format_hand(player_hand)}\n{msg} Nhận được **{win_amount:,}** cash!", 0x00ff00, thumbnail=ctx.author.display_avatar.url)
             return await ctx.send(embed=embed)
 
-    embed = create_embed("🃏 BLACKJACK", f"@{ctx.author.name}, Bạn đã cược **{bet:,}** vào game!", 0x0099ff, thumbnail=ctx.author.display_avatar.url)
-    embed.add_field(name="Nhà cái", value=f"[{dealer_hand[0]}, ???]", inline=True)
-    embed.add_field(name=ctx.author.name, value=f"{player_hand} (Tổng: {calculate_hand(player_hand)})", inline=True)
+    embed = create_embed("🃏 BLACKJACK", f"@{ctx.author.name}, Bạn đã cược **{bet:,}** vào ván bài!", 0x0099ff, thumbnail=ctx.author.display_avatar.url)
+    embed.add_field(name="Nhà cái", value=f"{dealer_hand[0]}, ???", inline=True)
+    embed.add_field(name=ctx.author.name, value=f"{format_hand(player_hand)} (Tổng: {calculate_hand(player_hand)})", inline=True)
     
     view = BlackjackView(ctx, bet, player_hand, dealer_hand)
     await ctx.send(embed=embed, view=view)
 
+# ===== NEW COMMANDS =====
 @bot.command()
-async def ping(ctx):
-    latency = round(bot.latency * 1000)
-    await ctx.reply(embed=create_embed("🏓 PONG!", f"Bot đang online!\n📶 Độ trễ: **{latency}ms**", 0x00ff00))
-
-@bot.command(aliases=["cf"])
-async def coinflip(ctx, choice: str, amount: str):
-    user = db.get_user(str(ctx.author.id))
-    if not user:
-        user = db.create_user(str(ctx.author.id), ctx.author.name)
-
-    if choice not in ["1", "2"]:
-        return await ctx.reply("❌ Lựa chọn không hợp lệ! Sử dụng `1` cho mặt trước hoặc `2` cho mặt sau.")
-
-    if amount.lower() == "all":
-        if user['balance'] == "inf":
-            return await ctx.reply(embed=create_embed("❌ Lỗi", "Bạn nhiều tiền đến nổi hệ thống bị ngu, deck đếm được số tiền này. Vui lòng thử lại với số tiền hợp lý!", 0xff0000))
-        bet = user['balance']
-    else:
-        try:
-            bet = int(amount.replace(",", "").replace(".", ""))
-        except ValueError:
-            return await ctx.reply("❌ Số tiền không hợp lệ.")
-
-    if (bet <= 0 or (user['balance'] != "inf" and user['balance'] < bet)):
-        return await ctx.reply(f"❌ Bạn không đủ tiền! Số dư: **{format_balance(user['balance'])}** cash")
-
-    if user['balance'] != "inf":
-        db.update_user(str(ctx.author.id), balance=user['balance'] - bet)
-    
-    face_name = "Trước (1)" if choice == "1" else "Sau (2)"
-    embed = create_embed("🪙 COINFLIP", f"@{ctx.author.name}, Bạn đã cược **{bet:,}** và chọn **{face_name}**\n\n🪙 *Đồng xu đang quay...*", 0x0099ff, thumbnail=ctx.author.display_avatar.url)
-    msg = await ctx.send(embed=embed)
-    
-    await asyncio.sleep(3)
-    
-    result = random.choice(["1", "2"])
-    result_name = "Trước (1)" if result == "1" else "Sau (2)"
-    
-    if result == choice:
-        win_amount = bet * 2
-        if db.get_user(str(ctx.author.id))['balance'] != "inf":
-            db.update_user(str(ctx.author.id), balance=db.get_user(str(ctx.author.id))['balance'] + win_amount)
-        db.update_stats(str(ctx.author.id), True, bet)
-        embed = create_embed("🪙 COINFLIP - CHIẾN THẮNG", f"💎 Kết quả là: **{result_name}**\n\nChúc mừng! Bạn đã thắng **{win_amount:,}** cash!", 0x00ff00, thumbnail=ctx.author.display_avatar.url)
-    else:
-        db.update_stats(str(ctx.author.id), False, bet)
-        embed = create_embed("🪙 COINFLIP - THẤT BẠI", f"💀 Kết quả là: **{result_name}**\n\nBạn đã cook hết:))", 0xff0000, thumbnail=ctx.author.display_avatar.url)
-    
-    await msg.edit(embed=embed)
+async def ok(ctx, member: discord.Member):
+    await ctx.send(f"{ctx.author.mention} giơ ngón cái với {member.mention} 👍")
 
 @bot.command()
-async def slots(ctx, amount: str):
-    user = db.get_user(str(ctx.author.id))
-    if not user:
-        user = db.create_user(str(ctx.author.id), ctx.author.name)
+async def cc(ctx, member: discord.Member):
+    insults = [
+        "địt mẹ mày con chó", "loz cek dcm", "đồ óc chó", "cút mẹ mày đi",
+        "mày là cái thá gì", "ăn cức đi con"
+    ]
+    await ctx.send(f"{member.mention} {random.choice(insults)}")
 
-    if amount.lower() == "all":
-        if user['balance'] == "inf":
-            return await ctx.reply(embed=create_embed("❌ Lỗi", "Bạn nhiều tiền đến nổi hệ thống bị ngu, deck đếm được số tiền này. Vui lòng thử lại với số tiền hợp lý!", 0xff0000))
-        bet = user['balance']
-    else:
-        try:
-            bet = int(amount.replace(",", "").replace(".", ""))
-        except ValueError:
-            return await ctx.reply("❌ Số tiền không hợp lệ.")
-
-    if (bet <= 0 or (user['balance'] != "inf" and user['balance'] < bet)):
-        return await ctx.reply(f"❌ Bạn không đủ tiền! Số dư: **{format_balance(user['balance'])}** cash")
-
-    if user['balance'] != "inf":
-        db.update_user(str(ctx.author.id), balance=user['balance'] - bet)
-    
-    emojis = ["🍒", "🍋", "🍇", "🔔", "⭐", "💎", "7️⃣"]
-    results = [random.choice(emojis) for _ in range(3)]
-    
-    slot_machine = f" | {' | '.join(results)} | "
-    
-    win = False
-    if results[0] == results[1] == results[2]:
-        win = True
-        if results[0] == "7️⃣": multiplier = 10
-        elif results[0] == "💎": multiplier = 8
-        elif results[0] == "⭐": multiplier = 5
-        else: multiplier = 3
-        
-        win_amount = bet * multiplier
-        if db.get_user(str(ctx.author.id))['balance'] != "inf":
-            db.update_user(str(ctx.author.id), balance=db.get_user(str(ctx.author.id))['balance'] + win_amount)
-        title = "🎰 SLOT MACHINE - JACKPOT!"
-        desc = f"**{slot_machine}**\n\nĐỉnh quá! Bạn đã trúng lớn và nhận được **{win_amount:,}** cash!"
-        color = 0x00ff00
-    elif results[0] == results[1] or results[1] == results[2] or results[0] == results[2]:
-        win = True
-        win_amount = int(bet * 1.5)
-        if db.get_user(str(ctx.author.id))['balance'] != "inf":
-            db.update_user(str(ctx.author.id), balance=db.get_user(str(ctx.author.id))['balance'] + win_amount)
-        title = "🎰 SLOT MACHINE - THẮNG NHỎ"
-        desc = f"**{slot_machine}**\n\nKhá lắm! Bạn nhận được **{win_amount:,}** cash!"
-        color = 0xffff00
-    else:
-        title = "🎰 SLOT MACHINE - THUA"
-        desc = f"**{slot_machine}**\n\nRất tiếc, chúc bạn may mắn lần sau!"
-        color = 0xff0000
-
-    db.update_stats(str(ctx.author.id), win, bet)
-    await ctx.send(embed=create_embed(title, desc, color, thumbnail=ctx.author.display_avatar.url))
+@bot.command()
+async def fuck(ctx, member: discord.Member):
+    actions = [
+        "đang làm gì đó mờ ám với", "đang thông đít", "đang hành hạ",
+        "đang ôm ấp nồng cháy với"
+    ]
+    await ctx.send(f"{ctx.author.mention} {random.choice(actions)} {member.mention} 🔞")
 
 # ===== MAIN LOOP =====
 async def main():
